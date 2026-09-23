@@ -10,7 +10,7 @@ export const PRESETS = {
     zenith: '#7d8fa2', horizon: '#cfd0cc', groundSky: '#8a8983',
     cloud: 0.74, cloudColor: '#dcdcd8', cloudShade: '#8d949b',
     fog: '#c4c6c3', fogNear: 45, fogFar: 640, exposure: 1.0,
-    night: 0, wet: 0, rain: 0, leaves: 1, shadow: 0.55, birds: 1, crowd: 1,
+    night: 0, wet: 0, rain: 0, wind: 0.8, leaves: 1, shadow: 0.55, birds: 1, crowd: 1,
   },
   sunny: {
     sunEl: 34, sunAz: 205, sunI: 2.9, sunColor: '#fff2df',
@@ -18,7 +18,7 @@ export const PRESETS = {
     zenith: '#3f79c2', horizon: '#bdd5ea', groundSky: '#8e948a',
     cloud: 0.26, cloudColor: '#ffffff', cloudShade: '#c7ced8',
     fog: '#c9d9e6', fogNear: 90, fogFar: 950, exposure: 1.0,
-    night: 0, wet: 0, rain: 0, leaves: 0.8, shadow: 1, birds: 1.3, crowd: 1.25,
+    night: 0, wet: 0, rain: 0, wind: 0.45, leaves: 0.8, shadow: 1, birds: 1.3, crowd: 1.25,
   },
   overcast: {
     sunEl: 28, sunAz: 210, sunI: 0.35, sunColor: '#e6e6e4',
@@ -26,7 +26,7 @@ export const PRESETS = {
     zenith: '#8e959b', horizon: '#babdbe', groundSky: '#7f807d',
     cloud: 0.96, cloudColor: '#b8bbbd', cloudShade: '#7e8387',
     fog: '#afb3b4', fogNear: 30, fogFar: 520, exposure: 1.0,
-    night: 0, wet: 0.15, rain: 0, leaves: 1, shadow: 0.15, birds: 0.6, crowd: 0.9,
+    night: 0, wet: 0.15, rain: 0, wind: 0.9, leaves: 1, shadow: 0.15, birds: 0.6, crowd: 0.9,
   },
   rain: {
     sunEl: 28, sunAz: 210, sunI: 0.12, sunColor: '#d4d9dc',
@@ -34,7 +34,7 @@ export const PRESETS = {
     zenith: '#6a7278', horizon: '#8b9195', groundSky: '#5f6264',
     cloud: 1.0, cloudColor: '#8c9195', cloudShade: '#565b5f',
     fog: '#848a8e', fogNear: 12, fogFar: 330, exposure: 0.98,
-    night: 0.08, wet: 1, rain: 1, leaves: 0.6, shadow: 0, birds: 0.05, crowd: 0.45,
+    night: 0.08, wet: 1, rain: 1, wind: 1.5, leaves: 0.6, shadow: 0, birds: 0.05, crowd: 0.45,
   },
   night: {
     sunEl: 38, sunAz: 150, sunI: 0.1, sunColor: '#a8b8ff',
@@ -42,7 +42,7 @@ export const PRESETS = {
     zenith: '#070d1e', horizon: '#26334a', groundSky: '#0d1016',
     cloud: 0.35, cloudColor: '#2c3342', cloudShade: '#141924',
     fog: '#1a2230', fogNear: 20, fogFar: 460, exposure: 1.4,
-    night: 1, wet: 0, rain: 0, leaves: 0.7, shadow: 0.2, birds: 0, crowd: 0.3,
+    night: 1, wet: 0, rain: 0, wind: 0.4, leaves: 0.7, shadow: 0.2, birds: 0, crowd: 0.3,
   },
 };
 
@@ -86,6 +86,7 @@ export class Weather {
     this.sky.apply(p);
     globalUniforms.uNight.value = p.night;
     globalUniforms.uWet.value = p.wet;
+    globalUniforms.uWind.value = p.wind;
     if (final || this._envTimer === undefined || performance.now() - this._envTimer > 400) {
       this.sky.updateEnv();
       this._envTimer = performance.now();

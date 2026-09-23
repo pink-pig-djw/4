@@ -10,6 +10,7 @@ export const globalUniforms = {
   uNight: { value: 0 },   // 0 day … 1 night (window lights, lamps)
   uWet: { value: 0 },     // 0 dry … 1 soaked (rain)
   uTime: { value: 0 },
+  uWind: { value: 0.8 },  // tree sway strength
   uLeafTint: { value: 1 },
 };
 

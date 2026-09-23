@@ -3,6 +3,7 @@
 // so every collider corresponds to a visible object and vice versa.
 import { rng, pointInPoly, obb, polyBounds, distSegSq, area as polyArea } from '../shared/geom.js';
 import { RoadIndex } from '../shared/roadindex.js';
+import { SPECIES, assignSpecies, MAX_SCALE } from './trees/species.js';
 
 const MOTOR = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service',
   'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link']);
@@ -69,6 +70,16 @@ class AreaIndex {
     }
     return best ? best.k : null;
   }
+  hasKind(x, z, kind) {
+    const arr = this.grid.get(Math.floor(x / this.cell) * 100003 + Math.floor(z / this.cell));
+    if (!arr) return false;
+    for (const i of arr) {
+      const a = this.a[i], bb = a._bb;
+      if (a.k !== kind || x < bb[0] || x > bb[2] || z < bb[1] || z > bb[3]) continue;
+      if (pointInPoly(x, z, a.p) && !(a.hl && a.hl.some(h => pointInPoly(x, z, h)))) return true;
+    }
+    return false;
+  }
 }
 
 // Move a point off road surfaces (so furniture never blocks a path). Returns [x,z] or null if impossible.
@@ -94,20 +105,25 @@ export function computeLayout(world) {
   };
 
   // ---- trees ----
+  // k: 0 broadleaf, 1 conifer, 2 shrub (walk-through); sp: species (see trees/species.js)
   for (const t of world.trees) {
     let [x, z, type, h] = t;
-    const k = type === 1 ? 1 : type === 3 ? 2 : 0;
+    const forest = ai.hasKind(x, z, 'forest');
+    const sp = assignSpecies(x, z, type, forest, r());
+    const S = SPECIES[sp];
+    const k = sp === 'shrub' ? 2 : S.evergreen ? 1 : 0;
     let s;
-    if (k === 2) s = 0.8 + r() * 0.9;
-    else if (h > 0) s = Math.min(Math.max(h / 9, 0.55), 2.2);
-    else s = 0.75 + r() * 0.65;
-    const rot = r() * Math.PI * 2, sy = 0.9 + r() * 0.25, ci = r();
+    if (k === 2) s = 0.6 + r() * 0.7;
+    else if (h > 0) s = h / S.h;
+    else s = forest ? 0.8 + r() * 0.4 : 0.62 + r() * 0.5;
+    s = Math.min(Math.max(s, 0.45), MAX_SCALE[sp]);
+    const rot = r() * Math.PI * 2, sy = 0.92 + r() * 0.16, ci = r();
     if (k !== 2) {
       const p = nudgeOffRoads(ri, bi, x, z, 0.45, 0.3);
       if (!p) continue;
       [x, z] = p;
     }
-    L.trees.push({ x, z, k, s, rot, sy, ci });
+    L.trees.push({ x, z, k, sp, s, rot, sy, ci, v: r() < 0.5 ? 0 : 1 });
   }
 
   // ---- benches ----

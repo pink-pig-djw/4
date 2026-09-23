@@ -4,8 +4,22 @@ import * as THREE from 'three';
 import { globalUniforms } from './materials.js';
 import { leafAtlas } from './textures.js';
 import { rng, hash2, pointInPoly } from '../shared/geom.js';
+import { SPECIES } from './trees/species.js';
 
 const LEAF_COLS = ['#c9a22c', '#d8b43a', '#cf7d2c', '#b8632a', '#9a4426', '#8f9a3a', '#b3a032', '#7f5a2e', '#e0b050'].map(c => new THREE.Color(c));
+const DRY = new THREE.Color('#7a5a38');
+const PALS = {};
+for (const k in SPECIES) PALS[k] = SPECIES[k].pal.map(c => new THREE.Color(c));
+// colour of a fallen leaf of this species: the late end of its autumn palette, some dried brown
+function leafColour(sp, r, r2) {
+  const pal = PALS[sp] || PALS.linden;
+  const t = (0.45 + r * 0.55) * 4, i = Math.min(3, Math.floor(t));
+  const c = pal[i].clone().lerp(pal[i + 1], t - i);
+  if (r2 < 0.25) c.lerp(DRY, 0.6);
+  return c.multiplyScalar(0.85 + r2 * 0.3);
+}
+// crown size of a layout tree (m)
+const crownOf = t => { const S = SPECIES[t.sp] || SPECIES.linden, H = S.h * t.s; return { H, R: S.env[2] * H }; };
 
 export class Effects {
   constructor(game) {
@@ -105,7 +119,7 @@ export class Effects {
   // ---------- leaves on the ground (regenerated around the player) ----------
   _groundLeaves() {
     this.leafTex = leafAtlas();
-    const max = 9000;
+    const max = 20000;
     const geo = new THREE.PlaneGeometry(0.12, 0.12); geo.rotateX(-Math.PI / 2);
     // pick one of four atlas cells per instance via uv offset attribute
     const cell = new Float32Array(max * 2);
@@ -143,16 +157,17 @@ export class Effects {
     if (c) return c;
     const trees = this.treeCells.get(key) || [];
     const r = rng(key * 7 + 3);
-    const per = this.quality === 'high' ? 34 : this.quality === 'medium' ? 22 : 10;
+    const per = this.quality === 'high' ? 80 : this.quality === 'medium' ? 55 : 22;
     const out = [];
     const bi = this.game.layout.buildingIndex;
     for (const t of trees) {
-      const n = Math.round(per * t.s);
+      const cr = crownOf(t);
+      const n = Math.round(per * Math.min(2.2, cr.R / 3.5));
       for (let i = 0; i < n; i++) {
-        const a = r() * Math.PI * 2, d = Math.sqrt(r()) * (2.2 + 3.2 * t.s);
+        const a = r() * Math.PI * 2, d = Math.sqrt(r()) * cr.R * 1.25;
         const x = t.x + Math.cos(a) * d, z = t.z + Math.sin(a) * d;
         if (bi.clearance(x, z, 0.5) < 0) continue;
-        out.push([x, z, r() * Math.PI * 2, 0.7 + r() * 0.8, Math.floor(r() * LEAF_COLS.length), r() * 0.3]);
+        out.push([x, z, r() * Math.PI * 2, 0.7 + r() * 0.8, leafColour(t.sp, r(), r()), r() * 0.3]);
       }
     }
     c = out;
@@ -177,7 +192,7 @@ export class Effects {
         e.set(L[5] * 0.4, L[2], 0); q.setFromEuler(e);
         m4.compose(v.set(L[0], 0.085, L[1]), q, s.set(L[3], 1, L[3]));
         mesh.setMatrixAt(n, m4);
-        mesh.setColorAt(n, LEAF_COLS[L[4]]);
+        mesh.setColorAt(n, L[4]);
         n++;
       }
     }
@@ -222,8 +237,11 @@ export class Effects {
       L.t += dt;
       if (!L.tree || L.t > L.dur) {
         if (!trees.length) continue;
-        L.tree = trees[Math.floor(Math.random() * trees.length)]; L.t = 0; L.dur = 6 + Math.random() * 5;
-        L.ox = (Math.random() - 0.5) * 4 * L.tree.s; L.oz = (Math.random() - 0.5) * 4 * L.tree.s; L.h = 4 + Math.random() * 3 * L.tree.s;
+        L.tree = trees[Math.floor(Math.random() * trees.length)]; L.t = 0;
+        const cr = crownOf(L.tree);
+        L.ox = (Math.random() - 0.5) * 1.6 * cr.R; L.oz = (Math.random() - 0.5) * 1.6 * cr.R; L.h = cr.H * (0.35 + Math.random() * 0.45);
+        L.dur = 3 + L.h * 0.45 + Math.random() * 3;
+        L.col = leafColour(L.tree.sp, Math.random(), Math.random());
       }
       const f = L.t / L.dur, y = L.h * (1 - f) + 0.1;
       const sway = Math.sin(L.t * 2.2 + L.seed) * 0.6;

@@ -1,5 +1,6 @@
 // Builds all static colliders from world data + layout. Pure JS (shared by game and Node walk test).
 // Rule: only things that are rendered get a collider, with the same footprint.
+import { trunkRadius } from '../world/trees/species.js';
 
 export function addBuildingColliders(world, cw, skip = new Set()) {
   world.buildings.forEach((b, idx) => {
@@ -19,7 +20,7 @@ export function addWorldColliders(world, layout, cw, skipBuildings = new Set()) 
   // trees (trunks)
   for (const t of layout.trees) {
     if (t.k === 2) continue; // shrubs are walk-through
-    cw.addCircle(t.x, t.z, 0.2 * Math.min(Math.max(t.s, 0.8), 1.6) + 0.06, 0, 4, 'tree');
+    cw.addCircle(t.x, t.z, trunkRadius(t.sp, t.s), 0, 4, 'tree');
   }
   // barriers (hedges, fences, walls) — gaps at gates
   for (const b of world.barriers) {
