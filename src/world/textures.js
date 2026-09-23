@@ -189,6 +189,29 @@ export function dirtTexture() {
   return finish(c);
 }
 
+// Flower bed in autumn: dark soil, low green foliage, asters / pansies / heather in clumps
+export function flowerBedTexture() {
+  const { c, ctx } = paint(512, 91, (n, r) => {
+    const v = 0.6 + n * 0.4 + (r - 0.5) * 0.2;
+    return [clamp(70 * v), clamp(56 * v), clamp(42 * v)];
+  });
+  const r = rand(92);
+  const cols = ['#7b4fa8', '#9b6cc4', '#f2eee6', '#e6c43a', '#c44a6a', '#b85a9a'];
+  for (let i = 0; i < 900; i++) {
+    const x = r() * 512, y = r() * 512;
+    ctx.fillStyle = `rgba(${40 + r() * 30},${70 + r() * 40},${30 + r() * 20},0.9)`;
+    ctx.beginPath(); ctx.arc(x, y, 5 + r() * 7, 0, Math.PI * 2); ctx.fill();
+  }
+  for (let k = 0; k < 70; k++) {
+    const cx = r() * 512, cy = r() * 512, col = cols[Math.floor(r() * cols.length)];
+    for (let i = 0; i < 40; i++) {
+      const x = cx + (r() - 0.5) * 34, y = cy + (r() - 0.5) * 34;
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 1.6 + r() * 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  return finish(c);
+}
+
 // Forest floor with leaf litter
 export function forestFloorTexture() {
   const { c, ctx } = paint(512, 81, (n, r) => {

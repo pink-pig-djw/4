@@ -128,7 +128,7 @@ vec3 fTv;
     // large-scale mottling (repairs, uneven weathering)
     fCol *= 0.94 + 0.12 * fVN(vec2(u, h) * 0.35 + seed);
     // splash zone and plinth
-    float plinth = st == 5 || st == 10 ? 0.5 : st == 7 || st == 6 ? 0.0 : 0.3;
+    float plinth = st == 5 || st == 10 ? 0.5 : st == 7 || st == 6 || st == 14 || st == 15 ? 0.0 : 0.3;
     if (h < plinth) {
       fCol = mix(fCol, vec3(0.42, 0.41, 0.39), 0.7) * (0.9 + 0.2 * fVN(vec2(u * 3.0, h * 3.0)));
       if (h > plinth - 0.03) { fN = vec3(0.0, 0.6, 0.8); fNSet = 1.0; }
@@ -222,6 +222,58 @@ vec3 fTv;
       hasO = true; ox0 = bay * 5.4 + 0.4; ow = 5.0; oy0 = 1.05; oh = lh - 1.4; rdep = 0.0; fw = 0.0;
       kind = 2; blindOK = 0.0; roomW = 5.4 * 3.0; roomU0 = floor(u / 16.2) * 16.2; roomD = 16.0; cellId = bay; litP = 0.9;
     }
+  } else if (st == 14 || st == 15) { // baroque town house / palace (15: sandstone ashlar)
+    vec3 stone = vec3(0.78, 0.7, 0.55);                      // Burgsandstein
+    float ph = st == 15 ? 0.0 : 0.85;                      // plinth height (rusticated)
+    // corner pilasters (Lisenen)
+    bool pil = u < 0.55 || u > L - 0.55;
+    if (st == 15) {
+      // ashlar courses 0.42 m high, blocks 0.9 m, staggered joints
+      float row = floor(h / 0.42), bu = u / 0.9 + mod(row, 2.0) * 0.5;
+      float jv = step(fract(h / 0.42), 0.03), ju = step(fract(bu), 0.012);
+      fCol = mix(stone, stone * (0.88 + 0.2 * fHash(vec3(floor(bu), row, seed))), 0.8);
+      fCol *= 1.0 - 0.25 * max(jv, ju) * fine2;
+      if (max(jv, ju) > 0.5 && fine > 0.5) { fN = vec3(0.0, jv > 0.5 ? -0.5 : 0.0, 0.86); fNSet = 1.0; }
+    } else if (pil) {
+      fCol = stone * (0.92 + 0.1 * fVN(vec2(u, h) * 2.0));
+      if (abs(u - 0.55) < 0.03 || abs(u - (L - 0.55)) < 0.03) { fN = vec3(u < L * 0.5 ? 0.6 : -0.6, 0.0, 0.8); fNSet = 1.0; }
+    }
+    // rusticated ground floor: horizontal grooves
+    if (h < lh && st == 14 && !pil) {
+      float g = step(fract(h / 0.45), 0.06);
+      fCol = mix(fCol, fCol * 0.8, g * fine);
+      if (g > 0.5 && fine > 0.5) { fN = vec3(0.0, -0.6, 0.8); fNSet = 1.0; }
+    }
+    // string course at every floor, cornice under the eaves
+    float sc = fy < 0.18 && fl >= 1.0 ? 1.0 : 0.0;
+    if (sc > 0.5) { fCol = stone * 0.95; fN = vec3(0.0, fy < 0.06 ? -0.7 : 0.35, 0.7); fNSet = 1.0; }
+    if (h > top - 0.55) {
+      fCol = stone * (h > top - 0.2 ? 1.0 : 0.82);
+      fN = vec3(0.0, h > top - 0.2 ? 0.45 : -0.75, 0.66); fNSet = 1.0;
+    }
+    if (h < ph) { fCol = stone * 0.8 * (0.9 + 0.2 * fVN(vec2(u * 2.0, h * 4.0))); }
+    // tall windows with sandstone surrounds (Fensterfaschen), keystone, sill
+    float sp = 2.7, ww = 1.15;
+    float n = floor((L - 1.4) / sp);
+    if (fl < levels && h < top - 0.6 && n >= 1.0) {
+      float start = (L - n * sp) * 0.5;
+      float ci = floor((u - start) / sp);
+      if (ci >= 0.0 && ci < n) {
+        float wy0 = fl < 0.5 ? max(ph + 0.15, 0.9) : 0.75, wy1 = lh - 0.55;
+        hasO = true; cellId = ci; ox0 = start + ci * sp + (sp - ww) * 0.5; ow = ww; oy0 = wy0; oh = wy1 - wy0;
+        rdep = 0.28; fw = 0.06; mullSp = ww * 0.5; tranY = oh * 0.68; sill = true;
+        frameCol = vec3(0.93, 0.92, 0.88); kind = 1; litP = 0.45; roomW = sp * 2.0; roomU0 = start + floor(ci * 0.5) * sp * 2.0; roomD = 5.5;
+        float wx = u - ox0, wy = fy - oy0;
+        // the surround: 14 cm band around the opening, ears at the top corners, keystone
+        bool band = wx > -0.16 && wx < ow + 0.16 && wy > -0.1 && wy < oh + 0.16 && !(wx >= 0.0 && wx <= ow && wy >= 0.0 && wy <= oh);
+        bool key = abs(wx - ow * 0.5) < 0.13 && wy > oh && wy < oh + 0.3;
+        if (band || key) {
+          fCol = stone * (key ? 0.96 : 0.9);
+          float inside = min(min(wx + 0.16, ow + 0.16 - wx), min(wy + 0.1, oh + 0.16 - wy));
+          if (inside < 0.03) { fN = vec3(0.0, 0.0, 1.0) + vec3(wx < 0.0 ? -0.5 : wx > ow ? 0.5 : 0.0, wy < 0.0 ? -0.5 : wy > oh ? 0.5 : 0.0, 0.0); fN = normalize(fN); fNSet = 1.0; }
+        }
+      }
+    }
   } else if (st == 10) { // gable end (plaster)
     fCol *= 0.97;
   } else if (st == 11) { // interior walls: plain paint with skirting
@@ -267,6 +319,7 @@ vec3 fTv;
         fr = max(max(step(g.x, fw), step(ow - fw, g.x)), max(step(g.y, fw), step(oh - fw, g.y)));
         if (mullSp > 0.0) { float mx = mod(g.x, mullSp); fr = max(fr, step(min(mx, mullSp - mx), fw * 0.55)); }
         if (tranY > 0.0) fr = max(fr, step(abs(g.y - tranY), fw * 0.55));
+        if (st == 14 || st == 15) { fr = max(fr, step(abs(g.y - tranY * 0.5), fw * 0.4)); fr = max(fr, step(abs(g.y - (tranY + (oh - tranY) * 0.5)), fw * 0.4)); }
         fr *= 1.0 - smoothstep(0.025, 0.07, aa);
       }
       // sun shadow of the reveal on the recessed window

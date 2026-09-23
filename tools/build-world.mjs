@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { REGIONS } from './regions.mjs';
 import { buildHeightmap, encodeHeightmap } from './dem.mjs';
-import { Terrain } from '../src/world/terrain.js';
+import { Terrain, gradeEntrances } from '../src/world/terrain.js';
 import {
   signedArea, area, orient, centroid, pointInPoly, distSegSq, closestOnSeg, polyBounds, cleanRing,
   labelPoint, rng, obb,
@@ -13,7 +13,16 @@ import {
 
 const regionId = process.argv[2] || 'suedgelaende';
 const region = REGIONS[regionId];
-const raw = JSON.parse(readFileSync(`data/raw/${regionId}.osm.json`, 'utf8'));
+// raw OSM of every rectangle of the region, merged (the rectangles overlap a little)
+const raw = { elements: [], osm3s: null };
+{
+  const seen = new Set();
+  for (const r of region.rects) {
+    const d = JSON.parse(readFileSync(`data/raw/${r.raw}.osm.json`, 'utf8'));
+    raw.osm3s = raw.osm3s || d.osm3s;
+    for (const e of d.elements) { const k = e.type[0] + e.id; if (seen.has(k)) continue; seen.add(k); raw.elements.push(e); }
+  }
+}
 
 // ---------- projection ----------
 const [lat0, lon0] = region.origin;
@@ -24,11 +33,12 @@ const proj = (lat, lon) => [(lon - lon0) * M_LON, -(lat - lat0) * M_LAT];
 const r2 = v => Math.round(v * 100) / 100;
 const rp = p => [r2(p[0]), r2(p[1])];
 
-const [S, W, N, E] = region.bbox;
-const [bx0, bz1] = proj(S, W), [bx1, bz0] = proj(N, E);
+// the region is a union of rectangles (local x0,z0,x1,z1); BOUNDS is their bounding box
+const RECTS = region.rects.map(r => { const [S, W, N, E] = r.bbox; const [x0, z1] = proj(S, W), [x1, z0] = proj(N, E); return [x0, z0, x1, z1]; });
+const bx0 = Math.min(...RECTS.map(r => r[0])), bz0 = Math.min(...RECTS.map(r => r[1])), bx1 = Math.max(...RECTS.map(r => r[2])), bz1 = Math.max(...RECTS.map(r => r[3]));
 const BOUNDS = [bx0, bz0, bx1, bz1]; // x0,z0,x1,z1
 const PAD = 60;
-const inBounds = (x, z, pad = 0) => x >= bx0 - pad && x <= bx1 + pad && z >= bz0 - pad && z <= bz1 + pad;
+const inBounds = (x, z, pad = 0) => RECTS.some(([x0, z0, x1, z1]) => x >= x0 - pad && x <= x1 + pad && z >= z0 - pad && z <= z1 + pad);
 
 // ---------- index ----------
 const nodes = new Map(), ways = new Map(), rels = [];
@@ -111,8 +121,7 @@ const clipToWorld = pts => clipRect(pts, bx0 - PAD, bz0 - PAD, bx1 + PAD, bz1 + 
 // Clip polyline to padded bounds, returns list of pieces.
 function clipLine(pts) {
   const pieces = []; let cur = [];
-  const x0 = bx0 - PAD, z0 = bz0 - PAD, x1 = bx1 + PAD, z1 = bz1 + PAD;
-  const inside = p => p[0] >= x0 && p[0] <= x1 && p[1] >= z0 && p[1] <= z1;
+  const inside = p => inBounds(p[0], p[1], PAD);
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     if (inside(p)) { cur.push(p); }
@@ -177,8 +186,16 @@ function defaultLevels(kind, a) {
 //  deck     – parking deck, open bands
 //  plain    – small blind structures
 //  church   – plain plaster with tall narrow windows
+const HISTORIC_ARCH = /baroque|rococo|neoclassic|classicism|historicism|renaissance|art_nouveau|gothic/;
 function facadeStyle(kind, tags, a, levels) {
   const mat = (tags['building:material'] || tags['building:facade:material'] || '').toLowerCase();
+  // old town: baroque / historicist listed buildings (Baudenkmäler) get pilasters, window surrounds,
+  // cornices; stone ones (the Schloss, Orangerie) sandstone ashlar
+  const arch = (tags['building:architecture'] || '').toLowerCase();
+  const listed = tags.heritage || tags['ref:BLfD'] || tags.historic === 'building' || tags.historic === 'castle' || tags.historic === 'manor';
+  if (kind !== 'church' && kind !== 'chapel' && (HISTORIC_ARCH.test(arch) || (listed && !SMALL.has(kind) && kind !== 'roof'))) {
+    return (/stone|sandstone|limestone/.test(mat) || tags.historic === 'castle') ? 'ashlar' : 'baroque';
+  }
   if (mat === 'glass') return 'glass';
   if (mat === 'brick') return 'brick';
   if (mat === 'mdf' || mat === 'metal' || mat === 'panel' || mat === 'wood') return 'panel';
@@ -279,6 +296,7 @@ function heightInfo(rec, parentTags) {
 }
 
 const PALETTE_PLASTER = [0xefe7d6, 0xf2ecdf, 0xe8dcc2, 0xe9e2d3, 0xf0e3c8, 0xe6d8c0, 0xdcd6c8, 0xf3efe6, 0xe9d7c3, 0xd9cfbd, 0xe7e0cf, 0xeadfcb];
+const PALETTE_BAROQUE = [0xe6cfa2, 0xecdcae, 0xe8bf98, 0xeee6d4, 0xd7d9c6, 0xe9d3b5, 0xdcc49a, 0xf0e6cf];
 const PALETTE_CONCRETE = [0xa8a49c, 0xb2aea5, 0x9f9b93, 0xb8b3a8, 0xaaa69d, 0xbdb8ad];
 const PALETTE_ROOF_TILE = [0x9a4a36, 0x8c3f30, 0xa55a3f, 0x7c3b2e, 0x6e5a52, 0x94503c, 0x5d4c46];
 
@@ -288,6 +306,8 @@ function styleColor(style, tags, seed) {
   const r = rng(seed)();
   switch (style) {
     case 'plaster': case 'church': return PALETTE_PLASTER[Math.floor(r * PALETTE_PLASTER.length)];
+    case 'baroque': return PALETTE_BAROQUE[Math.floor(r * PALETTE_BAROQUE.length)];
+    case 'ashlar': return 0xcdb48a;
     case 'brick': return 0x9a4e3a;
     case 'panel': return 0x3a3d40;
     case 'glass': return 0x6f8391;
@@ -304,6 +324,9 @@ function roofColor(tags, roofShape, seed) {
   const r = rng(seed * 7 + 3)();
   return PALETTE_ROOF_TILE[Math.floor(r * PALETTE_ROOF_TILE.length)];
 }
+const LANDMARK_AMENITY = new Set(['university', 'college', 'school', 'library', 'theatre', 'townhall', 'place_of_worship', 'hospital', 'courthouse', 'arts_centre', 'cinema', 'community_centre', 'police', 'fire_station', 'post_office', 'bank', 'marketplace', 'concert_hall']);
+const LANDMARK_KIND = new Set(['university', 'college', 'school', 'church', 'chapel', 'cathedral', 'public', 'civic', 'government', 'hospital', 'museum', 'train_station', 'transportation', 'castle', 'palace', 'stadium', 'sports_hall', 'library', 'dormitory']);
+const landmark = new Set();
 const idSeed = id => { let s = 0; for (const ch of id) s = (s * 31 + ch.charCodeAt(0)) >>> 0; return s; };
 
 function pushBuilding(rec, parentRec, outlineIndex) {
@@ -325,6 +348,10 @@ function pushBuilding(rec, parentRec, outlineIndex) {
   };
   if (rec.holes.length) b.hl = rec.holes.map(h => h.map(rp));
   if (t['building:part'] && t.name) b.n = t.name;
+  // landmark: named, public / historic / listed, or tall — keeps full detail everywhere
+  const all = { ...(parentRec?.tags || {}), ...t };
+  if (all.name || LANDMARK_AMENITY.has(all.amenity) || all.tourism || all.historic || all.heritage || all['ref:BLfD'] ||
+      LANDMARK_KIND.has(hi.kind) || hi.h > 25 || style === 'baroque' || style === 'ashlar' || style === 'church') landmark.add(buildings.length);
   buildings.push(b);
   return b;
 }
@@ -470,6 +497,7 @@ function areaKind(t) {
   }
   if (t.leisure === 'track') return 'tartan';
   if (t.leisure === 'playground') return 'playground';
+  if (t.landuse === 'flowerbed') return 'flowerbed';
   if (t.landuse === 'grass' || t.leisure === 'park' || t.leisure === 'garden' || t.landuse === 'recreation_ground' || t.landuse === 'village_green' || t.leisure === 'common') return 'grass';
   if (t.landuse === 'meadow' || t.natural === 'grassland' || t.landuse === 'greenfield') return 'meadow';
   if (t.landuse === 'farmland' || t.landuse === 'allotments' || t.landuse === 'orchard') return 'farmland';
@@ -585,6 +613,18 @@ function buildingAt(x, z, maxMinH = 2.2) {
   const a = bGrid.get(Math.floor(x / CELL) + ',' + Math.floor(z / CELL));
   if (!a) return -1;
   for (const i of a) { const b = buildings[i]; if (b.mh <= maxMinH && pointInPoly(x, z, b.p)) return i; }
+  return -1;
+}
+
+// a building (not a roof) whose outline passes within m of (x, z), or that contains it
+function nearBuilding(x, z, m) {
+  for (let gx = Math.floor((x - m) / CELL); gx <= Math.floor((x + m) / CELL); gx++)
+    for (let gz = Math.floor((z - m) / CELL); gz <= Math.floor((z + m) / CELL); gz++)
+      for (const i of bGrid.get(gx + ',' + gz) || []) {
+        const b = buildings[i]; if (b.mh > 2.2) continue;
+        if (pointInPoly(x, z, b.p)) return i;
+        for (let k = 0; k < b.p.length; k++) { const P = b.p[k], Q = b.p[(k + 1) % b.p.length]; if (distSegSq(x, z, P[0], P[1], Q[0], Q[1]) < m * m) return i; }
+      }
   return -1;
 }
 
@@ -753,13 +793,14 @@ for (const w of navWays) {
       if (buildingAt(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, 3) >= 0) through = true;
     }
     if (through || buildingAt(b[0], b[1], 3) >= 0) continue;
-    // flags: 1 pedestrian ok, 2 bike ok, 4 has sidewalk (walk offset outside), 8 motor road, 16 steps
+    // flags: 1 pedestrian ok, 2 bike ok, 4 has sidewalk (walk offset outside), 8 motor road, 16 steps, 32 on a bridge
     let f = 0;
     const motor = MOTOR.has(hw);
     if (hw !== 'cycleway' || t.foot === 'designated' || t.foot === 'yes' || t.segregated) f |= 1;
     if (hw === 'cycleway' || motor || t.bicycle === 'designated' || t.bicycle === 'yes' || hw === 'track' || (hw === 'path' && t.bicycle !== 'no') || (hw === 'footway' && t.bicycle === 'yes')) f |= 2;
     if (hw === 'steps') { f = 1 | 16; }
     if (motor) f |= 8;
+    if (t.bridge && t.bridge !== 'no') f |= 32;
     const sw = motor ? sidewalks(t) : [0, 0];
     if (sw[0] || sw[1]) f |= 4;
     let wdt = num(t.width); if (!Number.isFinite(wdt)) wdt = ROAD_W[hw] || 2;
@@ -837,8 +878,86 @@ for (const [id, m] of nodeUse) {
   streetSigns.push({ x: r2(x), z: r2(z), n: names, d: dirs.map(r2) });
 }
 
+// ---------- simpler ordinary buildings between the focus areas ----------
+{
+  const focus = (region.focus || []).map(f => { const [s, w, n, e] = f.bbox; const [x0, z1] = proj(s, w), [x1, z0] = proj(n, e); return [x0, z0, x1, z1]; });
+  let simple = 0;
+  if (focus.length) buildings.forEach((b, i) => {
+    if (landmark.has(i) || (b.o != null && outlines[b.o]?.n)) return;
+    const c = centroid(b.p);
+    if (focus.some(([x0, z0, x1, z1]) => c[0] >= x0 && c[0] <= x1 && c[1] >= z0 && c[1] <= z1)) return;
+    b.sm = 1; simple++;
+  });
+  console.log(`buildings: ${simple} ordinary buildings outside the focus areas built simpler`);
+}
+
+// ---------- districts and named parks (for the location display) ----------
+const districts = [], parks = [];
+{
+  const KINDS = new Set(['suburb', 'quarter', 'neighbourhood', 'village', 'hamlet', 'locality']);
+  for (const n of nodes.values()) {
+    const t = n.tags; if (!t || !KINDS.has(t.place) || !t.name) continue;
+    const [x, z] = n.p; if (!inBounds(x, z, 800)) continue;
+    districts.push({ n: t.name, k: t.place, x: r2(x), z: r2(z) });
+  }
+  for (const w of ways.values()) {
+    const t = w.tags; if (!t || !t.name || !(t.leisure === 'park' || t.leisure === 'garden') || w.nodes[0] !== w.nodes[w.nodes.length - 1] || !wayTouches(w)) continue;
+    const pts = wayPts(w); if (pts.length < 4) continue;
+    parks.push({ n: t.name, a: r2(Math.abs(area(pts))), p: pts.map(rp) });
+  }
+  parks.sort((a, b) => a.a - b.a);     // smallest first: a garden inside a park wins
+}
+
+// ---------- fountains, statues, monuments (only what is mapped) ----------
+const monuments = [];
+{
+  // fountain | statue (figure) | bust | sculpture (abstract) | stone (memorial stone, stele) | monument (obelisk/column)
+  const kindOf = t => {
+    if (t.amenity === 'fountain' || t.man_made === 'water_well' && t.fountain) return 'fountain';
+    const at = (t.artwork_type || '').toLowerCase(), mem = (t.memorial || '').toLowerCase();
+    if (t.tourism === 'artwork') {
+      if (/bust/.test(at)) return 'bust';
+      if (/statue/.test(at)) return 'statue';
+      if (/sculpture|installation|relief/.test(at)) return at.includes('relief') ? null : 'sculpture';
+      if (/stele|stone/.test(at)) return 'stone';
+      return null;
+    }
+    if (t.historic === 'memorial') {
+      if (/bust/.test(mem)) return 'bust';
+      if (/statue/.test(mem)) return 'statue';
+      if (/obelisk|column/.test(mem)) return 'monument';
+      if (/stele|stone|war_memorial/.test(mem)) return 'stone';
+      if (/sculpture/.test(mem)) return 'sculpture';
+      return null;
+    }
+    if (t.historic === 'monument') return 'monument';
+    return null;
+  };
+  const FIG = new Set(['statue', 'bust', 'sculpture']);
+  for (const n of nodes.values()) {
+    const t = n.tags; if (!t) continue;
+    const k = kindOf(t); if (!k) continue;
+    if (num(t.min_height) >= 1 || num(t.level) >= 1) continue;     // on a facade or arch, not on the ground
+    const [x, z] = n.p; if (!inBounds(x, z)) continue;
+    if (buildingAt(x, z) >= 0 || (FIG.has(k) && nearBuilding(x, z, 1.5) >= 0)) continue;
+    monuments.push({ k, x: r2(x), z: r2(z), r: k === 'fountain' ? 1.6 : 0, n: t.name || null });
+  }
+  for (const w of ways.values()) {
+    const t = w.tags; if (!t || !wayTouches(w) || w.nodes[0] !== w.nodes[w.nodes.length - 1]) continue;
+    const k = kindOf(t); if (!k) continue;
+    const pts = wayPts(w); const c = centroid(pts);
+    if (!inBounds(c[0], c[1])) continue;
+    const r = Math.sqrt(Math.abs(area(pts)) / Math.PI);
+    const rec = { k, x: r2(c[0]), z: r2(c[1]), r: r2(Math.min(r, 14)), n: t.name || null, p: pts.map(rp) };
+    // a fountain mapped inside its own basin (water area) is the centrepiece standing in the water
+    if (k === 'fountain' && areas.some(a => a.k === 'water' && pointInPoly(c[0], c[1], a.p))) rec.c = 1;
+    monuments.push(rec);
+  }
+}
+
 // ---------- terrain (DGM1) ----------
 let terrain = null;
+const world_sinks = [];            // [x, z, y, r0, r1]: ground lowered under bridges (gradeSite)
 if (region.dem) {
   const CELL = 3, Q = 0.05;
   const unproj = (x, z) => [lat0 - z / M_LAT, lon0 + x / M_LON];
@@ -874,8 +993,227 @@ if (region.dem) {
       const [lo] = T.range(b.p);
       b.y0 = r2(y0); b.yb = r2(Math.min(lo, y0));
     });
-    // bridge decks run straight between the ground at their two ends
-    for (const r of roads) if (r.br) r.by = [r2(T.height(r.p[0][0], r.p[0][1])), r2(T.height(r.p[r.p.length - 1][0], r.p[r.p.length - 1][1]))];
+    // Bridge decks. The DGM is bare earth: bridges are removed and the gap below is filled from
+    // the surroundings, and OSM splits a bridge into many ways (carriageways, slip roads) whose
+    // joints in mid-span would sample that fill. So the deck is solved over the whole connected
+    // bridge network:
+    //  1. free ends (abutments) sit on the ground; every other vertex is the length-weighted
+    //     average of its neighbours (harmonic interpolation = straight grades along a span);
+    //  2. whatever passes underneath (roads, paths, railways, streams) needs its clearance: the
+    //     deck is raised there, at most at an 8 % grade from the abutments;
+    //  3. clearance the grade can't give is found by lowering the ground under the bridge
+    //     (world.sinks, applied by gradeSite).
+    // abutments next to entrances sit on the graded ground (as gradeSite does at run time)
+    gradeEntrances({ entrances, buildings }, T);
+    {
+      const br = roads.filter(r => r.br);
+      // a sidewalk tagged on the road but also mapped as its own footway/path next to it is
+      // that way, not part of the road's deck
+      {
+        const FOOT = new Set(['footway', 'path', 'cycleway', 'pedestrian', 'steps', 'bridleway']);
+        const foot = roads.filter(r => FOOT.has(r.k));
+        const near = (x, z) => {
+          for (const f of foot) for (let i = 1; i < f.p.length; i++) {
+            const [ax, az] = f.p[i - 1], [bx, bz] = f.p[i];
+            if (Math.min(ax, bx) > x + 2 || Math.max(ax, bx) < x - 2 || Math.min(az, bz) > z + 2 || Math.max(az, bz) < z - 2) continue;
+            const dx = bx - ax, dz = bz - az, ll = dx * dx + dz * dz || 1;
+            const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / ll));
+            if (Math.hypot(x - ax - dx * t, z - az - dz * t) < 1.8) return true;
+          }
+          return false;
+        };
+        let dropped = 0;
+        for (const r of br) {
+          if (!r.sw) continue;
+          for (const side of [0, 1]) {
+            if (!r.sw[side]) continue;
+            let n = 0, hit = 0;
+            for (let i = 1; i < r.p.length; i++) {
+              const [ax, az] = r.p[i - 1], [bx, bz] = r.p[i], L = Math.hypot(bx - ax, bz - az) || 1;
+              const nx = (bz - az) / L * (side ? -1 : 1), nz = -(bx - ax) / L * (side ? -1 : 1);   // left normal for side 0
+              const o = r.w / 2 + 1.2;
+              for (let k = 0; k <= Math.ceil(L / 2); k++) {
+                const f = k / Math.ceil(L / 2);
+                n++; if (near(ax + (bx - ax) * f + nx * o, az + (bz - az) * f + nz * o)) hit++;
+              }
+            }
+            if (hit > n * 0.3) { r.sw[side] = 0; dropped++; }
+          }
+          if (!r.sw[0] && !r.sw[1]) delete r.sw;
+        }
+        console.log(`bridges: ${dropped} sidewalks mapped separately`);
+      }
+      // subdivide spans so the deck can follow the constraints (≤ 8 m per segment)
+      for (const r of br) {
+        const q = [r.p[0]];
+        for (let i = 1; i < r.p.length; i++) {
+          const A = r.p[i - 1], B = r.p[i], n = Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / 8);
+          for (let k = 1; k < n; k++) q.push([r2(A[0] + (B[0] - A[0]) * k / n), r2(A[1] + (B[1] - A[1]) * k / n)]);
+          q.push(B);
+        }
+        r.p = q;
+      }
+      const key = p => p[0].toFixed(1) + ',' + p[1].toFixed(1);
+      const V = new Map();
+      const vert = p => { const k = key(p); let v = V.get(k); if (!v) { v = { p, nb: new Map(), h: 0, req: -Infinity }; V.set(k, v); } return v; };
+      const segs = [];
+      const FOOTK = new Set(['footway', 'path', 'cycleway', 'pedestrian', 'steps', 'bridleway', 'track']);
+      for (const r of br) {
+        const side = r.sw ? 0.15 + Math.max(r.sw[0] || 0, r.sw[1] || 0) : 0;
+        for (let i = 1; i < r.p.length; i++) {
+          const va = vert(r.p[i - 1]), vb = vert(r.p[i]);
+          if (va === vb) continue;
+          const L = Math.max(0.5, Math.hypot(r.p[i][0] - r.p[i - 1][0], r.p[i][1] - r.p[i - 1][1]));
+          va.nb.set(vb, L); vb.nb.set(va, L);
+          segs.push({ a: va, b: vb, hw: r.w / 2 + side + 0.3, L, deck: FOOTK.has(r.k) ? 0.45 : 0.75 });
+        }
+      }
+      const solve = comp => {
+        for (let it = 0; it < 20000; it++) {
+          let dmax = 0;
+          for (const v of comp) {
+            if (v.fixed) continue;
+            let sw = 0, sh = 0;
+            for (const [n, L] of v.nb) { sw += 1 / L; sh += n.h / L; }
+            const h = sh / sw; dmax = Math.max(dmax, Math.abs(h - v.h)); v.h = h;
+          }
+          if (dmax < 1e-4) break;
+        }
+      };
+      // components and step 1
+      const comps = [], seen = new Set();
+      for (const v0 of V.values()) {
+        if (seen.has(v0)) continue;
+        const comp = [], st = [v0]; seen.add(v0);
+        while (st.length) { const v = st.pop(); comp.push(v); for (const n of v.nb.keys()) if (!seen.has(n)) { seen.add(n); st.push(n); } }
+        const anchors = comp.filter(v => v.nb.size <= 1);
+        if (!anchors.length) { for (const v of comp) { v.h = T.height(v.p[0], v.p[1]); v.fixed = true; } continue; }
+        for (const v of anchors) { v.fixed = v.anchor = true; v.h = T.height(v.p[0], v.p[1]); }
+        const mean = anchors.reduce((s, v) => s + v.h, 0) / anchors.length;
+        for (const v of comp) if (!v.fixed) v.h = mean;
+        solve(comp);
+        comps.push({ comp, anchors });
+      }
+      // distance along the deck network to the nearest abutment
+      {
+        const pq = [];
+        for (const v of V.values()) { v.da = v.anchor ? 0 : Infinity; if (v.anchor) pq.push(v); }
+        while (pq.length) {
+          pq.sort((a, b) => b.da - a.da);
+          const v = pq.pop();
+          if (v.seen) continue; v.seen = true;
+          for (const [n, L] of v.nb) if (v.da + L < n.da) { n.da = v.da + L; pq.push(n); }
+        }
+      }
+      const anchorPts = comps.flatMap(c => c.anchors.map(v => v.p));
+      const nearAnchor = (x, z, r) => anchorPts.some(([ax, az]) => Math.abs(ax - x) < r && Math.abs(az - z) < r && Math.hypot(ax - x, az - z) < r);
+      // step 2: what passes underneath
+      const grid = new Map(), GC = 20;
+      segs.forEach((sg, i) => {
+        const [ax, az] = sg.a.p, [bx, bz] = sg.b.p, m = sg.hw + 6;
+        for (let gx = Math.floor((Math.min(ax, bx) - m) / GC); gx <= Math.floor((Math.max(ax, bx) + m) / GC); gx++)
+          for (let gz = Math.floor((Math.min(az, bz) - m) / GC); gz <= Math.floor((Math.max(az, bz) + m) / GC); gz++) {
+            const k = gx + ',' + gz; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i);
+          }
+      });
+      const CLEAR = { footway: 2.5, path: 2.5, cycleway: 2.5, pedestrian: 2.5, steps: 2.5, bridleway: 2.7, motorway: 4.5, trunk: 4.5, primary: 4.5, secondary: 4.5, tertiary: 4.5, unclassified: 4.2, residential: 4.2, motorway_link: 4.5, trunk_link: 4.5, primary_link: 4.5, secondary_link: 4.5, tertiary_link: 4.5, service: 3.6, living_street: 3.6, track: 3.4, busway: 4.2 };
+      const unders = [];
+      for (const r of roads) if (!r.br) unders.push({ p: r.p, hw: r.w / 2 + (r.sw ? 2 : 0), c: CLEAR[r.k] || 2.7, walk: true });
+      for (const w of ways.values()) {
+        const t = w.tags;
+        if (!t || !['rail', 'tram', 'light_rail', 'narrow_gauge', 'subway'].includes(t.railway)) continue;
+        if ((t.bridge && t.bridge !== 'no') || (t.tunnel && t.tunnel !== 'no') || !wayTouches(w)) continue;
+        for (const pc of clipLine(wayPts(w))) unders.push({ p: pc, hw: 2.2, c: t.railway === 'tram' ? 4.8 : 5.6 });
+      }
+      for (const ww of waterways) unders.push({ p: ww.p, hw: ww.w / 2, c: ww.k === 'river' || ww.k === 'canal' ? 2.2 : 1.0 });
+      // The way below is sampled every 1.5 m. Under the deck the DGM shows fill interpolated from
+      // the bridge's surroundings, not the way (a path in a cutting, a road in an underpass), so
+      // the way's level there is interpolated along the way between where it leaves the deck.
+      const hits = [];                                    // [x, z, need, seg, t, clearance, level, halfwidth]
+      const cover = (x, z, uhw) => {
+        const cell = grid.get(Math.floor(x / GC) + ',' + Math.floor(z / GC));
+        let near = false; const on = [];
+        if (!cell) return { near, on };
+        for (const si of cell) {
+          const sg = segs[si], [ax, az] = sg.a.p, [bx, bz] = sg.b.p;
+          const dx = bx - ax, dz = bz - az, ll = dx * dx + dz * dz;
+          const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / ll));
+          const d = Math.hypot(x - ax - dx * t, z - az - dz * t);
+          if (d > sg.hw + uhw + 1.5) continue;
+          near = true;
+          if (d > sg.hw + uhw) continue;
+          // abutment zone: a way meeting the bridge at grade, nothing passes under it there
+          if (Math.min(sg.a.da + t * sg.L, sg.b.da + (1 - t) * sg.L) < 3 || nearAnchor(x, z, 3.5)) continue;
+          on.push([si, t]);
+        }
+        return { near, on };
+      };
+      for (const u of unders) {
+        const S = [];
+        let acc = 0;
+        for (let i = 1; i < u.p.length; i++) {
+          const A = u.p[i - 1], B = u.p[i], L = Math.hypot(B[0] - A[0], B[1] - A[1]), n = Math.max(1, Math.ceil(L / 1.5));
+          for (let k = i === 1 ? 0 : 1; k <= n; k++) S.push({ x: A[0] + (B[0] - A[0]) * k / n, z: A[1] + (B[1] - A[1]) * k / n, s: acc + L * k / n });
+          acc += L;
+        }
+        let any = false;
+        for (const q of S) { const c = cover(q.x, q.z, u.hw); q.near = c.near; q.on = c.on; if (c.on.length) any = true; }
+        if (!any) continue;
+        for (let i = 0; i < S.length; i++) {
+          const q = S[i]; if (!q.on.length) continue;
+          let ia = i, ib = i;
+          while (ia >= 0 && S[ia].near) ia--;
+          while (ib < S.length && S[ib].near) ib++;
+          const hq = T.height(q.x, q.z);
+          let lvl;
+          if (ia >= 0 && ib < S.length) { const ha = T.height(S[ia].x, S[ia].z), hb = T.height(S[ib].x, S[ib].z); lvl = ha + (hb - ha) * (q.s - S[ia].s) / (S[ib].s - S[ia].s); }
+          else if (ia >= 0) lvl = T.height(S[ia].x, S[ia].z);
+          else if (ib < S.length) lvl = T.height(S[ib].x, S[ib].z);
+          else lvl = hq;
+          lvl = Math.min(lvl, hq);
+          for (const [si, t] of q.on) hits.push([q.x, q.z, lvl + u.c + segs[si].deck, si, t, u.c, lvl, u.hw, u.walk]);
+        }
+      }
+      for (const [, , need, si] of hits) { const sg = segs[si]; sg.a.req = Math.max(sg.a.req, need); sg.b.req = Math.max(sg.b.req, need); }
+      // grade budget: height reachable from the abutments at 8 %
+      let raised = 0;
+      for (const { comp, anchors } of comps) {
+        if (!comp.some(v => v.req > v.h + 0.02)) continue;
+        for (const v of comp) v.cap = Infinity;
+        const pq = anchors.map(v => { v.cap = v.h; return v; });
+        while (pq.length) {
+          pq.sort((a, b) => b.cap - a.cap);
+          const v = pq.pop();
+          if (v.done) continue; v.done = true;
+          for (const [n, L] of v.nb) { const c = v.cap + 0.08 * L; if (c < n.cap) { n.cap = c; pq.push(n); } }
+        }
+        for (const v of comp) if (!v.anchor && v.req > v.h + 0.02) { v.h = Math.min(v.req, v.cap); v.fixed = true; raised++; }
+        solve(comp);
+      }
+      // step 3: bring the ground under the deck down to the way's level, and further where the
+      // deck couldn't be raised enough
+      const sinks = new Map();
+      for (const [x, z, , si, t, c, lvl, uhw, walk] of hits) {
+        if (!walk) continue;
+        const sg = segs[si], deck = sg.a.h + (sg.b.h - sg.a.h) * t;
+        const y = Math.min(lvl, deck - c - sg.deck);
+        const drop = T.height(x, z) - y;
+        // more than 5 m means the mapped levels contradict the terrain: leave it alone
+        if (drop < 0.1 || drop > 5) continue;
+        // the cut keeps clear of the abutments (the 3 m terrain grid would drag them down)
+        let da = Infinity; for (const [ax, az] of anchorPts) da = Math.min(da, Math.hypot(ax - x, az - z));
+        if (da < 3.5) continue;
+        const r0 = Math.max(1.0, Math.min(uhw, da - 2.5));
+        const r1 = Math.min(r0 + Math.min(6, y < lvl - 0.05 ? Math.max(2.5, (lvl - y) / 0.12) : 2.5), da - 1.2);
+        if (r1 < r0 + 0.5) continue;
+        const k = Math.round(x / 1.5) + ',' + Math.round(z / 1.5);
+        const prev = sinks.get(k);
+        if (!prev || prev[2] > y) sinks.set(k, [r2(x), r2(z), r2(y), r2(r0), r2(r1)]);
+      }
+      world_sinks.push(...sinks.values());
+      for (const r of br) r.by = r.p.map(p => r2(V.get(key(p)).h));
+      console.log(`bridges: ${br.length} ways in ${comps.length} decks, ${hits.length} clearance samples, ${raised} vertices raised, ${sinks.size} ground sinks`);
+    }
     const [lo, hi] = T.range([[BOUNDS[0], BOUNDS[1]], [BOUNDS[2], BOUNDS[3]], [BOUNDS[0], BOUNDS[3]], [BOUNDS[2], BOUNDS[1]]]);
     let mn = Infinity, mx = -Infinity; for (const v of rel) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
     console.log(`terrain ${H.nx}×${H.nz} @ ${CELL} m from ${H.tiles} DGM1 tiles, origin ${ref.toFixed(1)} m a.s.l., range ${mn.toFixed(1)}..${mx.toFixed(1)} m, ${H.missing} samples filled, ${(terrain.data.length / 1024).toFixed(0)} KB`);
@@ -885,7 +1223,8 @@ if (region.dem) {
 // ---------- output ----------
 const world = {
   meta: {
-    region: regionId, name: region.name, origin: region.origin, bounds: BOUNDS.map(r2),
+    region: regionId, name: region.name, origin: region.origin, bounds: BOUNDS.map(r2), rects: RECTS.map(r => r.map(r2)),
+    focus: (region.focus || []).map(f => { const [s, w, n, e] = f.bbox; const [x0, z1] = proj(s, w), [x1, z0] = proj(n, e); return { n: f.name, b: [x0, z0, x1, z1].map(r2) }; }),
     osmBase: raw.osm3s?.timestamp_osm_base || null,
     attribution: '© OpenStreetMap contributors (ODbL)' + (terrain ? ' · Gelände: Bayerische Vermessungsverwaltung, DGM1 (CC BY 4.0)' : ''),
   },
@@ -893,7 +1232,7 @@ const world = {
   buildings, outlines, roads, areas, waterways, barriers,
   trees, benches, bikes, lamps, stops, bins, misc, entrances, crossings, bollards, signals,
   nav: { n: navNodes, e: navEdges },
-  labels, streetSigns,
+  labels, streetSigns, monuments, sinks: world_sinks, districts, parks,
 };
 mkdirSync('data/world', { recursive: true });
 const out = `data/world/${regionId}.json`;

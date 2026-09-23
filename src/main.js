@@ -1,5 +1,6 @@
 // Entry point: start screen → build world → run.
-import world from '../data/world/suedgelaende.json';
+import worldData from '../data/world/suedgelaende.json';
+import { unpackWorld } from './core/unpack.js';
 import { Game } from './game.js';
 import { UI } from './ui/ui.js';
 import { settings } from './core/settings.js';
@@ -8,12 +9,14 @@ import { setupSpawn } from './world/places.js';
 import { installSystems } from './systems.js';
 
 const app = document.getElementById('app');
-const ui = new UI(app, world);
+let ui = null, world = null;
 
 let params = null;
 try { params = new URLSearchParams(location.search); } catch (e) { /* file:// */ }
 
 async function boot() {
+  world = await unpackWorld(worldData);
+  ui = new UI(app, world);
   if (!(params && params.has('autostart'))) await ui.showStart();
   ui.showLoading(t('loading'));
   const frame = () => new Promise(r => setTimeout(r, 16));
@@ -35,12 +38,13 @@ async function boot() {
   ui.hideLoading();
   game.start();
   work += performance.now() - last;
-  game.loadTimes = { work: Math.round(work), total: Math.round(performance.now() - t0), marks };
+  game.loadTimes = { work: Math.round(work), total: Math.round(performance.now() - t0), marks, parts: game.prof };
   console.info('[FAU] ready: ' + JSON.stringify(game.loadTimes));
   if (typeof window !== 'undefined') window.__game = game;
 }
 
 boot().catch(err => {
   console.error(err);
-  ui.fatal(String(err && err.stack || err));
+  if (ui) ui.fatal(String(err && err.stack || err));
+  else document.body.textContent = String(err && err.stack || err);
 });

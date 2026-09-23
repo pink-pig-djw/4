@@ -45,6 +45,9 @@ export class Controller {
     this.x = r.x; this.z = r.z;
     const gy = w.groundHeight(this.x, this.z, this.y + PLAYER.stepUp);
     if (Number.isFinite(gy)) this.y = gy;
+    // pushed off a deck or ledge into a slope: never stay below the ground
+    const ty = w.terrainAt(this.x, this.z);
+    if (this.y < ty - 0.05) { const g2 = w.groundHeight(this.x, this.z, ty + 0.5); this.y = Number.isFinite(g2) ? g2 : ty; }
     this.onGround = true;
     this.safe = { x: this.x, y: this.y, z: this.z, t: 0 };
   }
@@ -84,9 +87,17 @@ export class Controller {
     if (ceil - ground < P.height * 0.95) { nx = px; nz = pz; ground = w.groundHeight(px, pz, this.y + P.stepUp); }
 
     // keep inside soft bounds
+    // (the play area may be a union of rectangles: stay in one of them)
     if (this.boundsSoft) {
-      const [x0, z0, x1, z1] = this.boundsSoft;
-      nx = Math.min(Math.max(nx, x0), x1); nz = Math.min(Math.max(nz, z0), z1);
+      const rects = typeof this.boundsSoft[0] === 'number' ? [this.boundsSoft] : this.boundsSoft;
+      if (!rects.some(([x0, z0, x1, z1]) => nx >= x0 && nx <= x1 && nz >= z0 && nz <= z1)) {
+        let best = null, bd = Infinity;
+        for (const [x0, z0, x1, z1] of rects) {
+          const cx = Math.min(Math.max(nx, x0), x1), cz = Math.min(Math.max(nz, z0), z1), d = (cx - nx) ** 2 + (cz - nz) ** 2;
+          if (d < bd) { bd = d; best = [cx, cz]; }
+        }
+        nx = best[0]; nz = best[1];
+      }
     }
 
     // actual velocity after collisions (so we don't accumulate speed into walls)

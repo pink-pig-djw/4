@@ -10,11 +10,12 @@ const ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter',
 ];
 
+// Usage: node tools/fetch-osm.mjs [region] [rawName]   (rawName: fetch only that rectangle)
 const regionId = process.argv[2] || 'suedgelaende';
+const only = process.argv[3] || null;
 const region = REGIONS[regionId];
 if (!region) throw new Error(`unknown region ${regionId}`);
-const bb = (region.fetchBbox || region.bbox).join(',');
-const query = `[out:json][timeout:240];(nwr(${bb}););(._;>;);out body;`;
+let query = '';
 
 async function tryFetch(url) {
   const res = await fetch(url, {
@@ -27,19 +28,24 @@ async function tryFetch(url) {
   return JSON.parse(text);
 }
 
-let data;
-for (let attempt = 0; attempt < 9 && !data; attempt++) {
-  const url = ENDPOINTS[attempt % ENDPOINTS.length];
-  try {
-    console.log(`fetching ${regionId} from ${url} ...`);
-    data = await tryFetch(url);
-  } catch (e) {
-    console.warn(String(e.message || e));
-    await new Promise(r => setTimeout(r, 5000 * (attempt + 1)));
+for (const rect of region.rects) {
+  if (only && rect.raw !== only) continue;
+  const bb = (rect.fetchBbox || rect.bbox).join(',');
+  query = `[out:json][timeout:600];(nwr(${bb}););(._;>;);out body;`;
+  let data;
+  for (let attempt = 0; attempt < 9 && !data; attempt++) {
+    const url = ENDPOINTS[attempt % ENDPOINTS.length];
+    try {
+      console.log(`fetching ${rect.raw} from ${url} ...`);
+      data = await tryFetch(url);
+    } catch (e) {
+      console.warn(String(e.message || e));
+      await new Promise(r => setTimeout(r, 5000 * (attempt + 1)));
+    }
   }
+  if (!data) throw new Error('all Overpass endpoints failed');
+  mkdirSync('data/raw', { recursive: true });
+  const out = `data/raw/${rect.raw}.osm.json`;
+  writeFileSync(out, JSON.stringify(data));
+  console.log(`wrote ${out}: ${data.elements.length} elements, osm_base ${data.osm3s?.timestamp_osm_base}`);
 }
-if (!data) throw new Error('all Overpass endpoints failed');
-mkdirSync('data/raw', { recursive: true });
-const out = `data/raw/${regionId}.osm.json`;
-writeFileSync(out, JSON.stringify(data));
-console.log(`wrote ${out}: ${data.elements.length} elements, osm_base ${data.osm3s?.timestamp_osm_base}`);

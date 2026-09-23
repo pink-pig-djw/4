@@ -80,7 +80,7 @@ const HOUSE = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'bu
 // Flat roofs sit a little below the top of the walls (parapet / Attika); the wall height from OSM
 // already includes it, so the overall height stays as mapped.
 export function parapetHeight(b, seed) {
-  if (b.rs !== 'flat' || b.k === 'roof' || b.wh < 2.2) return 0;
+  if (b.rs !== 'flat' || b.k === 'roof' || b.wh < 2.2 || b.sm) return 0;   // b.sm: simpler corridor building
   if (SMALL_FLAT.has(b.k)) return 0.1;
   if (HOUSE.has(b.k)) return 0.25;
   return Math.min(0.45 + ((seed * 13.7) % 1) * 0.4, b.wh * 0.15);

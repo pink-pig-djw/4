@@ -11,6 +11,9 @@ export const ENTERABLE = [
   { key: 'rrze', id: 'w25358914', program: 'rrze', title: { de: 'Regionales Rechenzentrum (RRZE)', zh: '区域计算中心 RRZE' } },
   { key: 'mathe', id: 'r3570551', program: 'math', title: { de: 'Felix-Klein-Gebäude · Mathematik', zh: '数学楼 Felix-Klein-Gebäude' } },
   { key: 'eei', id: 'w265738549', program: 'eei', title: { de: 'Elektrotechnik (EEI)', zh: '电子工程楼 Elektrotechnik (EEI)' } },
+  // Altstadt: centre wing of the Kollegienhaus (the real building houses the university's Aula;
+  // the interior layout here is made up)
+  { key: 'kolleg', id: 'w357362086', program: 'aula', title: { de: 'Kollegienhaus', zh: '学院楼 Kollegienhaus' } },
 ];
 
 const SLAB = 0.3;          // floor slab thickness
@@ -35,6 +38,7 @@ const ROOM_NAMES = {
   service: { de: 'Service-Theke', zh: 'IT 服务台' },
   hoersaal: { de: 'Hörsaal', zh: '阶梯报告厅' },
   mensa: { de: 'Speisesaal', zh: '用餐大厅' },
+  aula: { de: 'Aula', zh: '大礼堂' },
   cafeteria: { de: 'Cafeteria', zh: '咖啡角' },
   treppe: { de: 'Treppenhaus', zh: '楼梯间' },
 };
@@ -675,6 +679,58 @@ function lectureProgram(P) {
   P.floors.push({ poly: fpoly, y: P.Y(1), thick: SLAB, kind: 'ceilingOnly', level: 1, holes: [], clipTo: P.inner });
 }
 
+// Kollegienhaus centre wing: entrance hall on the ground floor, the Aula (assembly hall) upstairs
+// with a low stage, rows of chairs and chandeliers. Stairs in a box at the +s end.
+function aulaProgram(P) {
+  const { hw, hd } = P.F;
+  const top = Math.min(P.levels - 1, 1);
+  P.accessible = top + 1;
+  // doors only on the long sides away from the stairs
+  const stairS0 = hw - 7.6;
+  for (const d of [...P.extDoors]) { const l = toL(P.F, d.x, d.z); if (l[0] > stairS0 - 1.5) P.removeExtDoor(d); }
+  if (!P.extDoors.length) for (const c of [[-hw / 3, -hd], [-hw / 3, hd], [-hw, 0]].map(([s, t]) => P.W(s, t))) if (P.extDoor(c[0], c[1], 2.4, true)) break;
+  // stairwell, open towards the hall (-s), against the +s wall
+  P.stairwell(stairS0 + 0.2, 1, 0, 0, top);
+  // --- ground floor: entrance hall ---
+  P.room('foyer', 0, -hw, -hd, stairS0, hd);
+  for (const sg of [-1, 1]) {
+    for (let s = -hw + 3; s < stairS0 - 2; s += 5) P.item('bench', s, sg * (hd - 1.2), 0, 0, -sg);
+    P.item('plant', stairS0 - 1.2, sg * (hd - 1.0), 0);
+    P.item('pinboard', -hw + 0.35, sg * hd * 0.45, 0, 1, 0);
+    P.npcSpots.push({ kind: 'stand', ...xz(P.W(-hw / 2, sg * 2.5)), y: 0, yaw: 0 });
+  }
+  for (let s = -hw + 2.5; s < stairS0 - 1; s += 4) for (let t = -hd + 2.5; t < hd - 1; t += 4) P.light(s, t, 0, 1.0, 1.0);
+  P.label(-hw + 0.1, 0, 0, 'Kollegienhaus', '学院楼', 1, 0, 2.6);
+  P.label(stairS0 + 0.1, -2.6, 0, 'Aula · 1. OG', '大礼堂 · 二楼', -1, 0, 2.2);
+  if (top >= 1) {
+    const y1 = P.Y(1);
+    // --- upper floor: the Aula ---
+    P.room('aula', 1, -hw, -hd, stairS0, hd);
+    // stage at the -s end, one step high (no stairs needed)
+    const stageD = Math.min(4.5, (stairS0 + hw) * 0.2), stageH = 0.36;
+    const sp = P.rectW(-hw + 0.3, -hd + 0.3, -hw + stageD, hd - 0.3);
+    P.tiers.push({ poly: sp, y: y1 + stageH, level: 1 });
+    P.floors.push({ poly: sp, y: y1 + stageH, thick: stageH, kind: 'tier', level: 1 });
+    P.item('lectern', -hw + stageD - 1.2, hd * 0.35, 1, 1, 0, { y: y1 + stageH });
+    P.item('screen', -hw + 0.35, 0, 1, 1, 0, { y: y1 + 2.4, len: Math.min(6, hd * 1.2) });
+    // rows of chairs facing the stage, centre aisle and side aisles
+    const rowS0 = -hw + stageD + 2.2, rowS1 = stairS0 - 1.6, aisle = 1.4;
+    for (let s = rowS0; s < rowS1; s += 1.05) {
+      for (const [t0, t1] of [[-hd + aisle, -aisle / 2], [aisle / 2, hd - aisle]]) {
+        for (let t = t0 + 0.3; t < t1 - 0.25; t += 0.58) P.item('aulachair', s, t, 1, -1, 0);
+      }
+      if (P.r() < 0.35) P.npcSpots.push({ kind: 'sitTable', ...xz(P.W(s + 0.05, (P.r() < 0.5 ? -1 : 1) * (aisle / 2 + 0.3 + P.r() * (hd - aisle * 1.5 - 0.6)))), y: y1, yaw: yawOfLocal(P.F, -1, 0) });
+    }
+    // chandeliers
+    for (let s = -hw + 3; s < stairS0 - 1.5; s += 4.5) for (const t of [-hd / 2, hd / 2]) P.light(s, t, 1, 1.4, 1.4);
+    P.label(stairS0 - 0.08, 2.4, 1, 'Aula', ROOM_NAMES.aula.zh, -1, 0, 2.4);
+    // walk: from the stairs down the centre aisle to the stage and back
+    const a = xz(P.W(stairS0 - 1.0, 0)), b = xz(P.W(-hw + stageD + 1.0, 0)), c = xz(P.W(-hw + stageD - 1.0, 0));
+    P.tests.push({ name: `${P.key} aula aisle`, from: { ...a, y: y1 }, points: [b, c, b, a] });
+  }
+  P.finalizeFloors();
+}
+
 // Keep the part of a polygon where n·p <= c (Sutherland–Hodgman, one plane)
 function clipHalf(poly, nx, nz, c) {
   const out = [];
@@ -742,6 +798,7 @@ export function buildPlans(world) {
     else if (spec.program === 'eei') ringProgram(P, { topLevel: Math.min(P.levels - 1, 4), roomKind: eeiRooms, server: false });
     else if (spec.program === 'mensa') mensaProgram(P);
     else if (spec.program === 'lecture') lectureProgram(P);
+    else if (spec.program === 'aula') aulaProgram(P);
     // ground in front of every door is graded to the floor level
     const T = getTerrain();
     if (T) for (const d of P.extDoors) T.flatten(d.x + d.nx * 1.2, d.z + d.nz * 1.2, P.base, 2.2, 6.5);

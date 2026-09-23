@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import * as T from './textures.js';
 import { FACADE_PARS, FACADE_MAIN, FACADE_NORMAL } from './facade.js';
 
-export const STYLE_ID = { ribbon: 0, lab: 1, panel: 2, glass: 3, brick: 4, plaster: 5, hall: 6, deck: 7, plain: 8, church: 9, gable: 10, interior: 11, deckmesh: 12, door: 13 };
+export const STYLE_ID = { ribbon: 0, lab: 1, panel: 2, glass: 3, brick: 4, plaster: 5, hall: 6, deck: 7, plain: 8, church: 9, gable: 10, interior: 11, deckmesh: 12, door: 13, baroque: 14, ashlar: 15 };
 
 // Global uniforms shared by many materials (weather / time of day).
 export const globalUniforms = {
@@ -110,6 +110,7 @@ export function createMaterials(maxAniso = 8) {
   A.court = lay(wetify(new THREE.MeshStandardMaterial({ map: tiled(T.asphaltTexture(), 6), color: 0xb8c4b0, roughness: 0.9 }), 0.9, 'court'), 2);
   A.sand = lay(wetify(new THREE.MeshStandardMaterial({ map: tiled(T.gravelTexture(), 3), color: 0xf8ecc8, roughness: 1 }), 0.6, 'sand'), 2);
   A.playground = A.sand;
+  A.flowerbed = lay(wetify(new THREE.MeshStandardMaterial({ map: tiled(T.flowerBedTexture(), 2), roughness: 1 }), 0.5, 'flower'), 2);
   const asph = tiled(T.asphaltTexture(), 6);
   const pav = tiled(T.paversTexture(), 2.4);
   A.parking = lay(wetify(new THREE.MeshStandardMaterial({ map: asph, color: 0xd8d8d8, roughness: 0.92 }), 1, 'park'), 3);

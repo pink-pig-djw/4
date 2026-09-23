@@ -17,6 +17,15 @@ export const FURNITURE = {
     s.box(0.34, 0.44, 0.04, 0, 0.22, 0, STEEL);
     return s.build();
   },
+  // assembly-hall chair: dark wooden frame, upholstered seat and back
+  aulachair: () => {
+    const s = new Shape();
+    legs(s, 0.44, 0.44, 0.44, WOOD_D, 0.02);
+    s.box(0.46, 0.07, 0.46, 0, 0.47, 0, '#6e2a2c');
+    s.box(0.05, 0.5, 0.44, -0.21, 0.76, 0, WOOD_D);
+    s.box(0.03, 0.4, 0.38, -0.18, 0.78, 0, '#6e2a2c');
+    return s.build();
+  },
   desk: () => {
     const s = new Shape(); s.box(0.8, 0.04, 1.6, 0, 0.73, 0, LAM); s.box(0.6, 0.6, 0.45, 0, 0.36, 0.55, GREY); legs(s, 1.6, 0.8, 0.72);
     s.box(0.04, 0.32, 0.5, -0.2, 0.93, -0.2, BLACK); s.box(0.03, 0.28, 0.46, -0.18, 0.93, -0.2, '#9fc4e8', 0, 0, 0.35); // monitor

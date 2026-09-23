@@ -5,7 +5,7 @@
 // Natural cover (forest floor, meadow, fields, scrub) comes from a land-cover texture blended in
 // the terrain shader; artificial surfaces are real geometry, subdivided so it follows the ground.
 import * as THREE from 'three';
-import { getTerrain, groundY, bridgeDecks, waterLevel } from './terrain.js';
+import { getTerrain, groundY, bridgeDecks, bridgeRailings, fitSlab, deckRamp, waterLevel } from './terrain.js';
 import * as T from './textures.js';
 import { globalUniforms } from './materials.js';
 
@@ -141,7 +141,7 @@ const drape = off => p => groundY(p[0], p[1]) + off;
 // Height function for a road: the ground, or on a bridge the straight deck between its ends.
 function roadHeight(r, decks, off) {
   if (!r.br || !r.by) return drape(off);
-  const ds = decks.filter(d => d.road === r);
+  const ds = decks.filter(d => d.road === r && !d.slab);
   return p => {
     let best = null, bd = Infinity;
     for (const d of ds) {
@@ -196,7 +196,7 @@ export function buildGround(world, mats, renderer) {
     }
     for (const [mat, b] of bufs) for (const m of b.meshes(mat, { renderOrder: 40 })) group.add(m);
   }
-  buildBridges(group, decks, mats);
+  buildBridges(group, decks, bridgeRailings(world), mats);
   return group;
 }
 
@@ -358,8 +358,10 @@ class GroundDecals {
   }
 }
 
+const FOOT_BRIDGE = new Set(['footway', 'path', 'cycleway', 'pedestrian', 'steps', 'bridleway', 'track']);
+
 // Bridge structure below the deck (slab + edge beams) and railings.
-function buildBridges(group, decks, mats) {
+function buildBridges(group, decks, rails, mats) {
   const pos = [], nor = [], idx = [];
   const box = (d, o0, o1, yTop, yBot) => {
     // prism along the deck segment between lateral offsets o0..o1, top follows the deck
@@ -379,23 +381,24 @@ function buildBridges(group, decks, mats) {
     }
     return base;
   };
-  for (const d of decks) {
+  for (let d of decks) {
     const hw = d.hw;
-    box(d, -hw, hw, -0.02, -0.55);                       // deck slab
-    for (const s of [-1, 1]) box(d, s * hw - 0.12, s * hw + 0.12, 0.25, -0.75);   // edge beams / kerbs
-    // railing: top rail and posts
-    for (const s of [-1, 1]) {
-      box(d, s * (hw + 0.05) - 0.03, s * (hw + 0.05) + 0.03, 1.15, 1.08);
-      box(d, s * (hw + 0.05) - 0.015, s * (hw + 0.05) + 0.015, 0.6, 0.57);
-    }
-    const n = Math.max(1, Math.round(d.hl * 2 / 1.6));
+    if (d.slab) { if ((d = fitSlab(d))) box(d, -hw, hw, -0.04, -0.4); continue; }   // approach slab, flush with the road
+    const foot = FOOT_BRIDGE.has(d.road.k);              // footbridges: thinner deck and beams
+    box(deckRamp(d), -hw, hw, -0.03, foot ? -0.3 : -0.55);   // deck slab (overlapping at joints)
+    for (const s of [-1, 1]) box(d, s * hw - 0.1, s * hw + 0.1, foot ? 0.12 : 0.25, foot ? -0.42 : -0.75);   // edge beams / kerbs
+  }
+  // railings: top rail, middle rail and posts
+  for (const q of rails) {
+    const L = Math.hypot(q.bx - q.ax, q.bz - q.az); if (L < 0.05) continue;
+    const ux = (q.bx - q.ax) / L, uz = (q.bz - q.az) / L;
+    const seg = { cx: (q.ax + q.bx) / 2, cz: (q.az + q.bz) / 2, ux, uz, hl: L / 2, y0: q.ya, y1: q.yb };
+    box(seg, -0.03, 0.03, 1.15, 1.08);
+    box(seg, -0.015, 0.015, 0.6, 0.57);
+    const n = Math.max(1, Math.round(L / 1.6));
     for (let k = 0; k <= n; k++) {
-      const s = -d.hl + d.hl * 2 * k / n;
-      for (const side of [-1, 1]) {
-        const o = side * (d.hw + 0.05), y = d.y0 + (d.y1 - d.y0) * (s + d.hl) / (2 * d.hl);
-        const sub = { cx: d.cx + d.ux * s, cz: d.cz + d.uz * s, ux: d.ux, uz: d.uz, hl: 0.03, y0: y, y1: y };
-        box(sub, o - 0.03, o + 0.03, 1.12, 0.2);
-      }
+      const s = -L / 2 + L * k / n, y = q.ya + (q.yb - q.ya) * k / n;
+      box({ cx: seg.cx + ux * s, cz: seg.cz + uz * s, ux, uz, hl: 0.03, y0: y, y1: y }, -0.03, 0.03, 1.12, 0.2);
     }
   }
   if (!pos.length) return;

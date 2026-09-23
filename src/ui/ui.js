@@ -42,7 +42,7 @@ export class UI {
             <h1>${t('title')}</h1>
             <p class="sub">${t('subtitle')}</p>
             <div class="regions">
-              <div class="region on"><b>Südgelände</b><span>${t('regionSued')}</span></div>
+              <div class="region on"><b>Erlangen</b><span>${t('regionAll')}</span></div>
               <div class="region off"><b>Innenstadt · Nürnberg</b><span>${t('comingSoon')}</span></div>
             </div>
             <div class="start-row">
@@ -359,8 +359,9 @@ export class UI {
       this.fpsEl.textContent = `${Math.round(g.fps || 0)} fps · ${g.quality} · ${info.render.calls} dc · ${(info.render.triangles / 1000).toFixed(0)}k tri · ${p.x.toFixed(0)},${p.z.toFixed(0)}`;
     } else this.fpsEl.classList.add('hidden');
     if (this.edgeCooldown > 0) this.edgeCooldown -= dt;
-    const [x0, z0, x1, z1] = this.world.meta.bounds;
-    const edge = Math.min(p.x - x0, x1 - p.x, p.z - z0, z1 - p.z);
+    // distance to the edge of the play area (union of rectangles)
+    let edge = -Infinity;
+    for (const [x0, z0, x1, z1] of this.world.meta.rects || [this.world.meta.bounds]) edge = Math.max(edge, Math.min(p.x - x0, x1 - p.x, p.z - z0, z1 - p.z));
     if (edge < 6 && !(this.edgeCooldown > 0)) { this.toast('edgeOfMap', 3200); this.edgeCooldown = 8; }
   }
 
@@ -403,13 +404,30 @@ export class UI {
       this.locName.textContent = best.cat === 'stop' ? `🚏 ${best.name}` : shortTitle(best.name);
       const zh = settings.lang === 'zh' ? (best.zh || PLACE_ZH[best.name]) : null;
       this.locSub.textContent = [zh, street].filter(Boolean).join(' · ');
-    } else if (street) {
-      this.locName.textContent = street;
-      this.locSub.textContent = 'Erlangen · Südgelände';
     } else {
-      this.locName.textContent = 'Erlangen';
-      this.locSub.textContent = 'Südgelände';
+      // named park / garden, else the area or district (real names from OSM / the focus areas)
+      const park = (w.parks || []).find(k => Math.abs(k.p[0][0] - p.x) < 1500 && pointInPoly(p.x, p.z, k.p));
+      const dist = this.district(p.x, p.z);
+      const zhOf = n => settings.lang === 'zh' ? PLACE_ZH[n] : null;
+      if (park) {
+        this.locName.textContent = park.n;
+        this.locSub.textContent = [zhOf(park.n), street].filter(Boolean).join(' · ') || `Erlangen · ${dist}`;
+      } else if (street) {
+        this.locName.textContent = street;
+        this.locSub.textContent = `Erlangen · ${zhOf(dist) || dist}`;
+      } else {
+        this.locName.textContent = 'Erlangen';
+        this.locSub.textContent = zhOf(dist) || dist;
+      }
     }
+  }
+
+  district(x, z) {
+    const w = this.world;
+    for (const f of w.meta.focus || []) { const [x0, z0, x1, z1] = f.b; if (x >= x0 && x <= x1 && z >= z0 && z <= z1) return f.n; }
+    let best = null, bd = 1500;
+    for (const d of w.districts || []) { const dd = Math.hypot(d.x - x, d.z - z) * (d.k === 'locality' ? 1.6 : 1); if (dd < bd) { bd = dd; best = d.n; } }
+    return best || 'Erlangen';
   }
 }
 

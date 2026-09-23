@@ -3,9 +3,10 @@
 //  - entrances mapped in OSM: a door set into the facade (facade shader style "door"), and a
 //    canopy over main entrances of public buildings
 //  - pitched roofs: eaves gutters and downpipes at the corners
-// Everything is merged per chunk and distance-culled.
+// Everything is merged per chunk, distance-culled, and only built once the camera comes near
+// (LazyChunks) — the details of a 5 km map are never all needed at once.
 import * as THREE from 'three';
-import { Shape, propMaterial } from './shapes.js';
+import { Shape, propMaterial, LazyChunks } from './shapes.js';
 import { globalUniforms, STYLE_ID } from './materials.js';
 import { WallBuf, parapetHeight } from './buildings.js';
 import { obb, area as polyArea, pointInPoly, rng, distSegSq, polyBounds } from '../shared/geom.js';
@@ -24,18 +25,31 @@ function edgeDist(poly, x, z) {
 export function buildDetails(world, mats, opts = {}) {
   const skip = opts.skip || new Set();
   const group = new THREE.Group(); group.name = 'building-details';
-  const chunks = new Map();
-  const get = (x, z) => {
-    const k = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
-    let c = chunks.get(k);
-    if (!c) { c = { roof: new Shape(), pipes: new Shape(), canopy: new Shape(), doors: new WallBuf(), x: (Math.floor(x / CHUNK) + 0.5) * CHUNK, z: (Math.floor(z / CHUNK) + 0.5) * CHUNK }; chunks.set(k, c); }
-    return c;
-  };
   const B = world.buildings;
+  // buildings and entrances per chunk (by the centre of the building's bounds)
+  const lists = new Map();
+  const listAt = (x, z) => {
+    const k = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
+    let l = lists.get(k);
+    if (!l) lists.set(k, l = { b: [], e: [], x: (Math.floor(x / CHUNK) + 0.5) * CHUNK, z: (Math.floor(z / CHUNK) + 0.5) * CHUNK });
+    return l;
+  };
+  B.forEach((b, idx) => { if (skip.has(idx)) return; const [x0, z0, x1, z1] = polyBounds(b.p); listAt((x0 + x1) / 2, (z0 + z1) / 2).b.push(idx); });
+  for (const e of world.entrances) listAt(e.x, e.z).e.push(e);
+  const mat = propMaterial(globalUniforms, { roughness: 0.6, metalness: 0.35 });
+  const concrete = propMaterial(globalUniforms, { roughness: 0.85, metalness: 0.05 });
+  const entries = [...lists.values()].map(l => ({ x: l.x, z: l.z, r: CHUNK * 0.72, maxDist: 450, build: () => buildChunk(l) }));
+  group.userData.lazy = new LazyChunks(group, entries);
+  return group;
+
+  function buildChunk(L) {
+  const c = { roof: new Shape(), pipes: new Shape(), canopy: new Shape(), doors: new WallBuf(), x: L.x, z: L.z };
+  const get = () => c;
+  const each = f => { for (const idx of L.b) f(B[idx], idx); };
 
   // ---- rooftop equipment ----
-  B.forEach((b, idx) => {
-    if (skip.has(idx) || b.rs !== 'flat' || b.k === 'roof' || b.wh < 4) return;
+  each((b, idx) => {
+    if (skip.has(idx) || b.sm || b.rs !== 'flat' || b.k === 'roof' || b.wh < 4) return;
     const a = polyArea(b.p);
     if (a < 120) return;
     const seed = (idx * 7.13) % 97;
@@ -75,7 +89,7 @@ export function buildDetails(world, mats, opts = {}) {
   });
 
   // ---- entrance doors and canopies ----
-  for (const e of world.entrances) {
+  for (const e of L.e) {
     const b = B[e.b];
     if (!b || skip.has(e.b) || b.mh > 0.1 || b.wh < 2.4) continue;
     if (e.k === 'garage' || e.k === 'emergency_exit') continue;
@@ -91,7 +105,7 @@ export function buildDetails(world, mats, opts = {}) {
     const Y = b.y0 ?? 0;
     c.doors.yOff = Y;
     c.doors.quad(A, D, 0, 0, h, h, col, STYLE_ID.door, 10, e.b % 97, 1, 0, w, h);
-    if (e.k === 'main' && PUBLIC.has(b.k) && b.wh > h + 0.6) {
+    if (e.k === 'main' && !b.sm && PUBLIC.has(b.k) && b.wh > h + 0.6) {
       // canopy: slab on the wall, 1.8 m deep
       const cw = w + 1.4, cd = 1.8, cy = Y + Math.min(h + 0.35, b.wh - 0.2);
       const cx = e.x + e.nx * cd / 2, cz = e.z + e.nz * cd / 2;
@@ -101,9 +115,40 @@ export function buildDetails(world, mats, opts = {}) {
     }
   }
 
+  // ---- dormers on the pitched roofs of baroque houses ----
+  each((b, idx) => {
+    if (skip.has(idx) || b.sm || (b.st !== 'baroque' && b.st !== 'ashlar') || b.rs === 'flat' || b.mh > 0.1) return;
+    if (b.p.length < 4 || b.p.length > 6) return;
+    const r = obb(b.p);
+    if (polyArea(b.p) / (4 * r.hw * r.hd) < 0.86) return;
+    const rh = Math.max(0, b.h - b.wh);
+    if (rh < 2.2 || r.hd < 3.5) return;
+    const Y = (b.y0 ?? 0) + b.wh;
+    const c = get(r.cx, r.cz);
+    const vx = -r.uz, vz = r.ux, rot = -Math.atan2(r.uz, r.ux);
+    const wallCol = '#' + new THREE.Color(b.c).getHexString(), roofCol = '#' + new THREE.Color(b.rc).getHexString();
+    const n = Math.floor((2 * r.hw - 2.5) / 3.6);
+    for (let k = 0; k < n; k++) {
+      const s = -r.hw + 1.25 + 3.6 * (k + 0.5) * (2 * r.hw - 2.5) / (3.6 * n);
+      for (const side of [-1, 1]) {
+        // front face at 72 % of the half depth, reaching back into the slope
+        const tf = r.hd * 0.72, tb = r.hd * 0.35, yf = Y + rh * (1 - tf / r.hd), yb = Y + rh * (1 - tb / r.hd);
+        const depth = tf - tb, tm = (tf + tb) / 2 * side;
+        const cx = r.cx + r.ux * s + vx * tm, cz = r.cz + r.uz * s + vz * tm;
+        const top = Math.max(yf + 1.45, yb + 0.1);
+        c.roof.box(1.3, top - yf + 0.3, depth, cx, (yf - 0.3 + top) / 2, cz, wallCol, 0, rot);
+        c.roof.box(1.55, 0.14, depth + 0.3, cx + vx * side * 0.15, top + 0.07, cz + vz * side * 0.15, roofCol, 0, rot);
+        // window: white frame, dark glass
+        const fx = r.cx + r.ux * s + vx * side * (tf + 0.02), fz = r.cz + r.uz * s + vz * side * (tf + 0.02);
+        c.roof.box(0.86, 1.0, 0.04, fx, yf + 0.65, fz, '#ecebe6', 0, rot);
+        c.roof.box(0.7, 0.84, 0.05, fx + vx * side * 0.005, yf + 0.65, fz + vz * side * 0.005, '#1c2328', 0, rot);
+      }
+    }
+  });
+
   // ---- gutters and downpipes on pitched roofs ----
-  B.forEach((b, idx) => {
-    if (skip.has(idx) || b.rs === 'flat' || b.k === 'roof' || b.mh > 0.1) return;
+  each((b, idx) => {
+    if (skip.has(idx) || b.sm || b.rs === 'flat' || b.k === 'roof' || b.mh > 0.1) return;
     if (b.p.length < 4 || b.p.length > 6) return;
     const r = obb(b.p);
     if (polyArea(b.p) / (4 * r.hw * r.hd) < 0.86) return;
@@ -128,19 +173,17 @@ export function buildDetails(world, mats, opts = {}) {
     }
   });
 
-  const mat = propMaterial(globalUniforms, { roughness: 0.6, metalness: 0.35 });
-  const concrete = propMaterial(globalUniforms, { roughness: 0.85, metalness: 0.05 });
-  for (const c of chunks.values()) {
-    const add = (geo, m, maxDist, cast) => {
-      const mesh = new THREE.Mesh(geo, m);
-      mesh.castShadow = cast; mesh.receiveShadow = true;
-      mesh.userData.cull = { x: c.x, z: c.z, r: CHUNK * 0.72, maxDist, castDist: 90, cast };
-      group.add(mesh);
-    };
-    if (c.roof.parts.length) add(c.roof.build(), mat, 450, true);
-    if (c.pipes.parts.length) add(c.pipes.build(), mat, 160, false);
-    if (c.canopy.parts.length) add(c.canopy.build(), concrete, 400, true);
-    if (c.doors.pos.length) add(c.doors.geometry(), mats.facade, 300, false);
+  const out = [];
+  const add = (geo, m, maxDist, cast) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.castShadow = cast; mesh.receiveShadow = true;
+    mesh.userData.cull = { x: c.x, z: c.z, r: CHUNK * 0.72, maxDist, castDist: 90, cast };
+    out.push(mesh);
+  };
+  if (c.roof.parts.length) add(c.roof.build(), mat, 450, true);
+  if (c.pipes.parts.length) add(c.pipes.build(), mat, 160, false);
+  if (c.canopy.parts.length) add(c.canopy.build(), concrete, 400, true);
+  if (c.doors.pos.length) add(c.doors.geometry(), mats.facade, 300, false);
+  return out;
   }
-  return group;
 }

@@ -312,35 +312,42 @@ export class Interiors {
   }
 
   _buildLabels() {
-    const atlas = new TextAtlas(2048);
-    const buf = { pos: [], nor: [], uv: [] };
+    // signs are painted into text atlases (a new one when a page is full), one mesh per atlas
+    const pages = [];
+    const page = () => { const pg = { atlas: new TextAtlas(2048), buf: { pos: [], nor: [], uv: [] } }; pages.push(pg); return pg; };
+    let cur = page();
     const cache = new Map();
+    const paint = l => (ctx, w, h) => {
+      ctx.fillStyle = '#f4f4f1'; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#1f3f6e'; ctx.fillRect(0, 0, 8, h);
+      ctx.fillStyle = '#1b1d20'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      const m = l.text.match(/^(\d\d\.\d+)\s+(.*)$/);
+      if (m) {
+        ctx.font = `700 26px ${SIGN_FONT}`; ctx.fillText(m[1], 18, 22);
+        fitText(ctx, m[2], w - 28, 22, '500'); ctx.fillText(m[2], 18, 53);
+      } else { fitText(ctx, l.text, w - 28, 30, '600'); ctx.fillText(l.text, 18, h / 2); }
+    };
     for (const P of this.plans) for (const l of P.labels) {
-      let uv = cache.get(l.text);
-      if (!uv) {
-        uv = atlas.add(256, 72, (ctx, w, h) => {
-          ctx.fillStyle = '#f4f4f1'; ctx.fillRect(0, 0, w, h);
-          ctx.fillStyle = '#1f3f6e'; ctx.fillRect(0, 0, 8, h);
-          ctx.fillStyle = '#1b1d20'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-          const m = l.text.match(/^(\d\d\.\d+)\s+(.*)$/);
-          if (m) {
-            ctx.font = `700 26px ${SIGN_FONT}`; ctx.fillText(m[1], 18, 22);
-            fitText(ctx, m[2], w - 28, 22, '500'); ctx.fillText(m[2], 18, 53);
-          } else { fitText(ctx, l.text, w - 28, 30, '600'); ctx.fillText(l.text, 18, h / 2); }
-        });
-        cache.set(l.text, uv);
+      let hit = cache.get(l.text);
+      if (!hit) {
+        let uv = cur.atlas.add(256, 72, paint(l));
+        if (cur.atlas.full) { cur = page(); uv = cur.atlas.add(256, 72, paint(l)); }
+        hit = { uv, pg: cur };
+        cache.set(l.text, hit);
       }
       const big = !/^\d\d\./.test(l.text);
-      pushQuad(buf, l.x, l.y + P.base, l.z, l.yaw, big ? 1.2 : 0.5, big ? 0.36 : 0.15, uv, 0.012);
+      pushQuad(hit.pg.buf, l.x, l.y + P.base, l.z, l.yaw, big ? 1.2 : 0.5, big ? 0.36 : 0.15, hit.uv, 0.012);
     }
-    atlas.done();
-    if (!buf.pos.length) return;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nor, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
-    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: atlas.texture, roughness: 0.5 }));
-    this.group.add(m);
+    for (const { atlas, buf } of pages) {
+      atlas.done();
+      if (!buf.pos.length) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(buf.nor, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
+      const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: atlas.texture, roughness: 0.5 }));
+      this.group.add(m);
+    }
   }
 
   // Inside a building: draw only that building (+ directly connected ones). Outside: only nearby ones.

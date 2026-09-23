@@ -95,8 +95,10 @@ export function setupSpawn(game) {
   if (mensa) yaw = Math.atan2(-(mensa.x - sx), -(mensa.z - sz));
   let q = null;
   try { q = new URLSearchParams(location.search).get('at'); } catch (e) { /* file:// */ }
-  if (q) { const [x, z, a] = q.split(',').map(Number); if (Number.isFinite(x) && Number.isFinite(z)) { sx = x; sz = z; yaw = Number.isFinite(a) ? a : yaw; } }
-  game.spawn(sx, sz, yaw);
+  let sy = null;
+  // ?at=x,z[,yaw[,y]] (debugging / screenshots)
+  if (q) { const [x, z, a, y] = q.split(',').map(Number); if (Number.isFinite(x) && Number.isFinite(z)) { sx = x; sz = z; yaw = Number.isFinite(a) ? a : yaw; sy = Number.isFinite(y) ? y : null; } }
+  game.spawn(sx, sz, yaw, sy);
 }
 
 export function teleportTo(game, place) {

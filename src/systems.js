@@ -2,6 +2,7 @@
 import { Vegetation } from './world/vegetation.js';
 import { Grass } from './world/grass.js';
 import { Barriers } from './world/barriers.js';
+import { Monuments } from './world/monuments.js';
 import { Props } from './world/props.js';
 import { DistanceCuller } from './world/shapes.js';
 import { Interiors } from './world/interiors/render.js';
@@ -10,11 +11,20 @@ import { AudioEngine } from './audio/audio.js';
 import { Effects } from './world/effects.js';
 
 export async function installSystems(game, progress) {
+  const prof = game.prof || (game.prof = {});
+  let tp = performance.now();
+  const lap = name => { const t = performance.now(); prof[name] = Math.round(t - tp); tp = t; };
   const veg = new Vegetation(game);
   game.updaters.push(veg);
   game.vegetation = veg;
+  lap('vegetation');
   game.barriers = new Barriers(game);
+  game.updaters.push(game.barriers);
+  lap('barriers');
+  game.monuments = new Monuments(game);
+  lap('monuments');
   const grass = new Grass(game);
+  lap('grass');
   game.updaters.push(grass);
   game.grass = grass;
   await progress(0.3);

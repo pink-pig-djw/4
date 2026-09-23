@@ -3,3 +3,4 @@ node_modules/
 desktop/build/
 *.log
 data/raw/dgm1/
+data/raw/*.osm.json

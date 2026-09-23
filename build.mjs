@@ -3,6 +3,19 @@
 import * as esbuild from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { deflateSync } from 'node:zlib';
+
+// The map data (several MB of JSON) is embedded deflated + base64 and unpacked at start-up
+// (src/core/unpack.js) — the offline HTML stays small.
+const packedWorld = {
+  name: 'packed-world',
+  setup(build) {
+    build.onLoad({ filter: /data[\\/]world[\\/][^\\/]+\.json$/ }, args => {
+      const z = deflateSync(readFileSync(args.path), { level: 9 }).toString('base64');
+      return { contents: `export default { packed: ${JSON.stringify(z)} };`, loader: 'js' };
+    });
+  },
+};
 
 export function esbuildOptions(dev = false) {
   return {
@@ -16,6 +29,7 @@ export function esbuildOptions(dev = false) {
     define: { __DEV__: dev ? 'true' : 'false' },
     legalComments: 'none',
     logLevel: 'warning',
+    plugins: [packedWorld],
   };
 }
 
@@ -28,7 +42,7 @@ export function htmlTemplate(scriptTag) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#1b2a3a">
-<title>FAU Campus 3D · Südgelände</title>
+<title>FAU Campus 3D · Erlangen</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,${icon}">
 <style>${css}</style>
 </head>

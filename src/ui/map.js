@@ -200,7 +200,7 @@ export class BigMap {
     this.view.cx = px; this.view.cz = pz;
     const r = this.canvas.parentElement.getBoundingClientRect();
     this.view.s = Math.min(r.width, r.height) / 520;
-    this.el.querySelector('.bm-title').textContent = t('map') + ' · ' + t('regionSued');
+    this.el.querySelector('.bm-title').textContent = t('map') + ' · Erlangen';
     this.el.querySelector('.bm-foot').textContent = t('comingSoon') + ' · ' + t('attribution');
     this.search.placeholder = t('search');
     this.el.querySelector('.bm-go').textContent = t('teleport');

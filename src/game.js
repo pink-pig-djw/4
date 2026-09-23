@@ -53,9 +53,14 @@ export class Game {
     await progress(0.2);
 
     // terrain (DGM1): decoded first — the ground, buildings, props and physics all stand on it
+    const prof = this.prof = {};
+    let tp = performance.now();
+    const lap = name => { const t = performance.now(); prof[name] = Math.round(t - tp); tp = t; };
     this.terrain = await Terrain.fromWorld(this.world.terrain);
+    lap('terrain');
     gradeSite(this.world, this.terrain);
     setTerrain(this.terrain);
+    lap('grade');
 
     this.cw = new CollisionWorld(8);
     const [bx0, bz0, bx1, bz1] = this.world.meta.bounds;
@@ -65,7 +70,9 @@ export class Game {
     this.plans = buildPlans(this.world);
     for (const P of this.plans) for (const i of P.buildingIdx) this.skipBuildings.add(i);
     this.enterableOutlines = [...new Set(this.plans.map(P => P.b.o).filter(o => o >= 0))];
+    lap('plans');
     this.ground = buildGround(this.world, this.mats, r);
+    lap('ground');
     scene.add(this.ground);
     if (this.ground.userData.terrainChunks) this.updaters.push(this.ground.userData.terrainChunks);
     if (this.ground.userData.decals) this.updaters.push(this.ground.userData.decals);
@@ -74,17 +81,24 @@ export class Game {
     const bld = buildBuildings(this.world, this.mats, { skip: this.skipBuildings });
     this.buildingsGroup = bld.group;
     scene.add(bld.group);
-    scene.add(buildDetails(this.world, this.mats, { skip: this.skipBuildings }));
+    lap('buildings');
+    const details = buildDetails(this.world, this.mats, { skip: this.skipBuildings });
+    scene.add(details);
+    this.updaters.push(details.userData.lazy);
+    lap('details');
     await progress(0.5);
+    tp = performance.now();
     this.layout = computeLayout(this.world);
+    lap('layout');
     buildInteriorColliders(this.world, this.cw, this.plans);
     addWorldColliders(this.world, this.layout, this.cw, this.skipBuildings);
+    lap('colliders');
     await progress(0.55);
 
     // extra systems are registered by main.js (vegetation, props, npcs, audio, …)
     this.input = new Input(r.domElement);
     this.player = new Controller(this.cw, 0, 0, 0);
-    this.player.boundsSoft = [bx0 + 2, bz0 + 2, bx1 - 2, bz1 - 2];
+    this.player.boundsSoft = (this.world.meta.rects || [this.world.meta.bounds]).map(([x0, z0, x1, z1]) => [x0 + 2, z0 + 2, x1 - 2, z1 - 2]);
 
     window.addEventListener('resize', () => this.onResize());
     onSettingChange((k, v) => {

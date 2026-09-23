@@ -1,7 +1,7 @@
 // Builds all static colliders from world data + layout. Pure JS (shared by game and Node walk test).
 // Rule: only things that are rendered get a collider, with the same footprint.
 import { trunkRadius } from '../world/trees/species.js';
-import { groundY as g, bridgeDecks } from '../world/terrain.js';
+import { groundY as g, bridgeDecks, bridgeRailings, fitSlab, deckRamp } from '../world/terrain.js';
 
 // segment collider following the terrain: long pieces are split so the y-range stays tight
 function groundSegment(cw, ax, az, bx, bz, h, thick, tag, below = 0.3) {
@@ -39,14 +39,27 @@ export function addWorldColliders(world, layout, cw, skipBuildings = new Set()) 
   }
   // barriers (hedges, fences, walls) — gaps at gates
   // bridge decks (walkable, a ceiling for whoever passes underneath) with railings
-  for (const d of bridgeDecks(world)) {
-    cw.addRamp(d.cx, d.cz, d.ux, d.uz, d.hl, d.hw, d.y0 + 0.05, d.y1 + 0.05, 'bridge');
-    for (const side of [-1, 1]) {
-      const ox = -d.uz * (d.hw + 0.05) * side, oz = d.ux * (d.hw + 0.05) * side;
-      const s0 = d.first ? 1.5 : 0, s1 = d.last ? 1.5 : 0;
-      if (d.hl * 2 - s0 - s1 < 0.3) continue;
-      const ax = d.cx - d.ux * (d.hl - s0) + ox, az = d.cz - d.uz * (d.hl - s0) + oz, bx = d.cx + d.ux * (d.hl - s1) + ox, bz = d.cz + d.uz * (d.hl - s1) + oz;
-      cw.addSegment(ax, az, bx, bz, Math.min(d.y0, d.y1) - 0.5, Math.max(d.y0, d.y1) + 1.15, 0.1, 'railing');
+  for (let d of bridgeDecks(world)) {
+    if (d.slab && !(d = fitSlab(d))) continue;
+    d = deckRamp(d);
+    cw.addRamp(d.cx, d.cz, d.ux, d.uz, d.hl, d.hw, d.y0 + (d.slab ? 0 : 0.05), d.y1 + (d.slab ? 0 : 0.05), 'bridge');
+  }
+  for (const q of bridgeRailings(world)) cw.addSegment(q.ax, q.az, q.bx, q.bz, Math.min(q.ya, q.yb) - 0.5, Math.max(q.ya, q.yb) + 1.15, 0.1, 'railing');
+  // fountains (basin rim), statues and monuments (pedestal)
+  for (const m of world.monuments || []) {
+    const y = g(m.x, m.z);
+    if (m.k === 'fountain' && m.c) {
+      cw.addCircle(m.x, m.z, Math.max(1.0, Math.min(m.r || 2, 8) * 0.75), y - 0.3, y + 6, 'fountain');
+    } else if (m.k === 'fountain') {
+      const r = Math.max(1.2, Math.min(m.r || 1.6, 12)), seg = r > 4 ? 16 : 8;
+      for (let i = 0; i < seg; i++) {
+        const a0 = i / seg * Math.PI * 2, a1 = (i + 1) / seg * Math.PI * 2;
+        cw.addSegment(m.x + Math.cos(a0) * r, m.z + Math.sin(a0) * r, m.x + Math.cos(a1) * r, m.z + Math.sin(a1) * r, y - 0.3, y + 0.62, 0.45, 'fountain');
+      }
+      cw.addCircle(m.x, m.z, r > 4 ? r * 0.32 : Math.min(0.62, r * 0.22), y - 0.3, y + 6, 'fountain');
+    } else {
+      const h = { statue: 0.75, bust: 0.4, sculpture: 0.9, stone: 0.65, monument: 0.6 }[m.k] || 0.6;
+      cw.addBox(m.x, m.z, h, h, 0, y - 0.3, y + 2.5, false, m.k);
     }
   }
   for (const pc of layout.barrierPieces) {

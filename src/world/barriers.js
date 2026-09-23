@@ -1,8 +1,9 @@
 // Fences, walls, guard rails and handrails mapped in OSM (hedges are in vegetation.js).
 // Uses the same pieces as the colliders (layout.barrierPieces: openings at gates and wherever a
-// path crosses), follows the terrain, merged per chunk and distance-culled.
+// path crosses), follows the terrain, merged per chunk, distance-culled and built once the camera
+// comes near (LazyChunks).
 import * as THREE from 'three';
-import { Shape, propMaterial } from './shapes.js';
+import { Shape, propMaterial, LazyChunks } from './shapes.js';
 import { globalUniforms } from './materials.js';
 import { groundY } from './terrain.js';
 import { hash2 } from '../shared/geom.js';
@@ -44,17 +45,21 @@ function fenceTexture(kind) {
 }
 
 // style of a fence: industrial and public areas get welded mesh, gardens wooden pickets
+const RESID = /house|detached|terrace|semidetached|bungalow/;
 function fenceStyle(pc, layout) {
   const h = hash2(Math.round(pc.a[0] / 7), Math.round(pc.a[1] / 7));
   const bi = layout.buildingIndex;
   let resid = false;
-  // look for a house close by
-  for (const b of bi.b) {
-    if (!b._bb) continue;
-    const [x0, z0, x1, z1] = b._bb;
-    if (pc.a[0] < x0 - 25 || pc.a[0] > x1 + 25 || pc.a[1] < z0 - 25 || pc.a[1] > z1 + 25) continue;
-    if (/house|detached|terrace|semidetached|bungalow/.test(b.k)) { resid = true; break; }
-  }
+  // look for a house close by (grid cells of the building index within 25 m)
+  const [px, pz] = pc.a, R = 25, cs = bi.cell;
+  for (let gx = Math.floor((px - R) / cs); gx <= Math.floor((px + R) / cs) && !resid; gx++)
+    for (let gz = Math.floor((pz - R) / cs); gz <= Math.floor((pz + R) / cs) && !resid; gz++) {
+      for (const i of bi.grid.get(gx * 100003 + gz) || []) {
+        const b = bi.b[i], [x0, z0, x1, z1] = b._bb;
+        if (px < x0 - R || px > x1 + R || pz < z0 - R || pz > z1 + R) continue;
+        if (RESID.test(b.k)) { resid = true; break; }
+      }
+    }
   if (resid && pc.h <= 1.4) return h < 0.6 ? 'picket' : 'chain';
   return h < 0.55 ? 'meshGreen' : h < 0.85 ? 'meshGrey' : 'chain';
 }
@@ -72,13 +77,19 @@ export class Barriers {
     };
     const POST = { meshGreen: '#2f5a3a', meshGrey: '#3a3d40', chain: '#8e9396', picket: '#6d5238' };
     const WALL = ['#a8a59e', '#9a5a44', '#c4b393', '#8f8c86'];
-    const chunks = new Map();
-    const get = (x, z) => {
+    const lists = new Map();
+    for (const pc of L.barrierPieces) {
+      if (pc.k === 'hedge') continue;
+      const x = (pc.a[0] + pc.b[0]) / 2, z = (pc.a[1] + pc.b[1]) / 2;
       const k = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
-      let c = chunks.get(k);
-      if (!c) chunks.set(k, c = { shape: new Shape(), infill: {}, x: (Math.floor(x / CHUNK) + 0.5) * CHUNK, z: (Math.floor(z / CHUNK) + 0.5) * CHUNK });
-      return c;
-    };
+      let l = lists.get(k);
+      if (!l) lists.set(k, l = { pieces: [], x: (Math.floor(x / CHUNK) + 0.5) * CHUNK, z: (Math.floor(z / CHUNK) + 0.5) * CHUNK });
+      l.pieces.push(pc);
+    }
+    const mat = propMaterial(globalUniforms, { roughness: 0.7 });
+    const buildChunk = l => {
+    const c = { shape: new Shape(), infill: {}, x: l.x, z: l.z };
+    const get = () => c;
     const quadInfill = (c, style, A, B, ya, yb, h, s0, s1) => {
       let f = c.infill[style];
       if (!f) f = c.infill[style] = { pos: [], uv: [], nor: [] };
@@ -87,8 +98,7 @@ export class Barriers {
       for (const i of [0, 1, 2, 0, 2, 3]) { const q = P[i]; f.pos.push(q[0], q[1], q[2]); f.uv.push(q[3], q[4]); f.nor.push(nx / nl, 0, nz / nl); }
     };
 
-    for (const pc of L.barrierPieces) {
-      if (pc.k === 'hedge') continue;
+    for (const pc of l.pieces) {
       const [ax, az] = pc.a, [bx, bz] = pc.b;
       const len = Math.hypot(bx - ax, bz - az);
       if (len < 0.2) continue;
@@ -138,24 +148,25 @@ export class Barriers {
       }
     }
 
-    const mat = propMaterial(globalUniforms, { roughness: 0.7 });
-    for (const c of chunks.values()) {
-      const add = (mesh, maxDist, cast) => {
-        mesh.castShadow = cast; mesh.receiveShadow = true;
-        mesh.userData.cull = { x: c.x, z: c.z, r: CHUNK * 0.72, maxDist, castDist: 60, cast };
-        this.group.add(mesh);
-      };
-      if (c.shape.parts.length) add(new THREE.Mesh(c.shape.build(), mat), 400, true);
-      for (const [style, f] of Object.entries(c.infill)) {
-        const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.Float32BufferAttribute(f.pos, 3));
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(f.uv, 2));
-        g.setAttribute('normal', new THREE.Float32BufferAttribute(f.nor, 3));
-        g.computeBoundingSphere();
-        add(new THREE.Mesh(g, infillMat[style]), 220, false);
-      }
+    const out = [];
+    const add = (mesh, maxDist, cast) => {
+      mesh.castShadow = cast; mesh.receiveShadow = true;
+      mesh.userData.cull = { x: c.x, z: c.z, r: CHUNK * 0.72, maxDist, castDist: 60, cast };
+      out.push(mesh);
+    };
+    if (c.shape.parts.length) add(new THREE.Mesh(c.shape.build(), mat), 400, true);
+    for (const [style, f] of Object.entries(c.infill)) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(f.pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(f.uv, 2));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(f.nor, 3));
+      g.computeBoundingSphere();
+      add(new THREE.Mesh(g, infillMat[style]), 220, false);
     }
+    return out;
+    };
+    this.lazy = new LazyChunks(this.group, [...lists.values()].map(l => ({ x: l.x, z: l.z, r: CHUNK * 0.72, maxDist: 400, build: () => buildChunk(l) })));
     game.scene.add(this.group);
   }
-  update() {}
+  update(dt, game) { this.lazy.update(dt, game); }
 }

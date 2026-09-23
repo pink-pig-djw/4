@@ -3,12 +3,12 @@
 // GeoTIFFs in ETRS89 / UTM zone 32N, named by their lower-left corner in km.
 // Usage: node tools/fetch-dem.mjs [region]
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { REGIONS } from './regions.mjs';
+import { REGIONS, regionBBox } from './regions.mjs';
 import { toUTM32 } from './utm.mjs';
 
 const regionId = process.argv[2] || 'suedgelaende';
 const region = REGIONS[regionId];
-const [s, w, n, e] = region.fetchBbox || region.bbox;
+const [s, w, n, e] = regionBBox(region, 'fetchBbox');
 let e0 = Infinity, e1 = -Infinity, n0 = Infinity, n1 = -Infinity;
 for (const [lat, lon] of [[s, w], [s, e], [n, w], [n, e]]) {
   const [E, N] = toUTM32(lat, lon);
