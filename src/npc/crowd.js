@@ -32,6 +32,23 @@ export class Crowd {
     this.t = 0;
     this.used = new Set();
     this.target = null;
+    // the player's own body (visible in third-person view)
+    const look = randomLook(rng(4711), 'student');
+    look.backpack = true; look.longHair = false;
+    look.colors.top = [0.07, 0.2, 0.42]; look.colors.pants = [0.12, 0.17, 0.27]; look.colors.shoes = [0.92, 0.92, 0.9];
+    this.avatar = { id: 0, kind: 'player', ...look, pose: {}, t: 0, phase: 0, umbrella: false, x: 0, y: 0, z: 0, yaw: 0 };
+  }
+
+  _avatar(game, dt) {
+    const p = game.player, a = this.avatar;
+    a.x = p.x; a.y = p.y; a.z = p.z;
+    a.yaw = Math.atan2(-Math.cos(p.yaw), -Math.sin(p.yaw));
+    a.t += dt;
+    a.umbrella = (game.weather.current.rain || 0) > 0.5 && !game.indoor;
+    if (!p.onGround) { walkPose(a.pose, 1.2, 0.6); a.pose.shinL = -0.9; a.pose.shinR = -0.5; }
+    else if (p.speed > 0.3) { a.phase += p.speed * dt / 1.32 * TAU; walkPose(a.pose, a.phase, Math.min(1, p.speed / 2.2)); a.pose.lean = p.speed > 3.5 ? 0.22 : 0.05; }
+    else standPose(a.pose, a.t, 0);
+    return a;
   }
 
   setQuality(q) {
@@ -454,6 +471,7 @@ export class Crowd {
       if (d2 > 64 && (dx * fx + dz * fz) / Math.sqrt(d2) < -0.35) return false; // behind the camera
       return true;
     };
+    if (game.viewMode === 'third') r.add(this._avatar(game, game._dt || 0.016));
     for (const w of this.walkers) if (visible(w)) r.add(w);
     const inPlan = game.indoor && game.indoor.plan;
     for (const s of this.statics.values()) {

@@ -6,6 +6,7 @@ import { TouchControls } from './touch.js';
 import { DialogueUI } from './dialogue.js';
 import { teleportTo } from '../world/places.js';
 import { pointInPoly, distSegSq } from '../shared/geom.js';
+import { isTouchDevice } from '../core/input.js';
 
 const WEATHERS = ['autumn', 'sunny', 'overcast', 'rain', 'night'];
 const WEATHER_ICON = { autumn: '🍂', sunny: '☀️', overcast: '☁️', rain: '🌧️', night: '🌙' };
@@ -17,7 +18,7 @@ export class UI {
     this.root = document.createElement('div');
     this.root.className = 'ui-root';
     app.appendChild(this.root);
-    this.isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    this.isTouch = isTouchDevice();
     document.documentElement.classList.toggle('touch', this.isTouch);
     document.documentElement.lang = settings.lang === 'zh' ? 'zh-CN' : 'de';
     onLangChange(() => { document.documentElement.lang = settings.lang === 'zh' ? 'zh-CN' : 'de'; this.refreshTexts(); });
@@ -99,6 +100,7 @@ export class UI {
       <div class="hud-tr">
         <div class="mm-slot"></div>
         <div class="hud-btns">
+          <button class="btn-icon" data-act="view" title="V">👁</button>
           <button class="btn-icon" data-act="map" title="M">🗺️</button>
           <button class="btn-icon" data-act="weather" title="T">${WEATHER_ICON[game.weather.name]}</button>
           <button class="btn-icon lang" data-act="lang" title="L">${settings.lang === 'zh' ? 'DE' : '中'}</button>
@@ -135,6 +137,8 @@ export class UI {
     inp.on('escape', () => this.action('escape'));
     inp.on('lang', () => this.action('lang'));
     inp.on('weather', () => this.cycleWeather());
+    inp.on('view', () => this.action('view'));
+    inp.on('lockfailed', () => this.updateLockHint());
     inp.on('help', () => this.action('menu'));
     inp.on('debug', () => { setSetting('showFps', !settings.showFps); });
     inp.on('locked', () => this.updateLockHint());
@@ -198,6 +202,9 @@ export class UI {
     } else if (a === 'interact') {
       if (this.dialogue?.isOpen) { this.dialogue.choose(0); return; }
       g.onInteract?.();
+    } else if (a === 'view') {
+      g.setViewMode(g.viewMode === 'third' ? 'first' : 'third');
+      this.toast(g.viewMode === 'third' ? 'viewThird' : 'viewFirst', 1600);
     } else if (a === 'fullscreen') {
       this.requestFullscreen();
     }
@@ -254,8 +261,9 @@ export class UI {
         <p class="fine">${t('disclaimer')}<br>${t('attribution')}${this.game.world.meta.osmBase ? ' · OSM ' + this.game.world.meta.osmBase.slice(0, 10) : ''}</p>
       </div>`;
     const m = this.menu;
-    m.querySelector('.m-close').onclick = () => this.closeMenu();
-    m.querySelector('.m-resume').onclick = () => this.closeMenu();
+    const resume = () => { this.closeMenu(); if (!this.isTouch) this.game.input.requestLock(); };
+    m.querySelector('.m-close').onclick = resume;
+    m.querySelector('.m-resume').onclick = resume;
     m.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { setSetting('lang', b.dataset.lang); this.renderMenu(); });
     m.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { setSetting('weather', b.dataset.w); this.renderMenu(); this.refreshTexts(); });
     m.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { setSetting('quality', b.dataset.q); this.renderMenu(); });
@@ -274,9 +282,10 @@ export class UI {
 
   updateLockHint() {
     if (!this.lockHint || this.isTouch) return;
-    const show = !this.game.input.locked && !this.overlayOpen();
+    const inp = this.game.input;
+    const show = !inp.locked && !this.overlayOpen() && !this.hintDismissed;
     this.lockHint.classList.toggle('hidden', !show);
-    this.lockHint.textContent = t('clickToLook');
+    this.lockHint.textContent = inp.lockFailed ? t('dragToLook') : t('clickToLook');
   }
 
   refreshTexts() {
@@ -332,6 +341,7 @@ export class UI {
 
   update(dt) {
     const g = this.game, p = g.player;
+    if (!this.hintDismissed && g.input.lockFailed && g.input.drag) { this.hintDismissed = true; this.updateLockHint(); }
     // talk prompt
     const tgt = g.crowd && g.crowd.target;
     if (tgt && !this.overlayOpen()) this.setPrompt(`${t('talk')} · ${g.crowd.identity(tgt).name}`);

@@ -82,6 +82,7 @@ export class Game {
       if (k === 'weather') this.weather.set(v);
     });
     this.headBob = 0;
+    this.viewMode = settings.view === 'third' ? 'third' : 'first';
     // soft fill light that fades in indoors (stand-in for bounced light and ceiling lamps)
     this.indoorLight = new THREE.AmbientLight(0xfff4e6, 0);
     scene.add(this.indoorLight);
@@ -131,6 +132,7 @@ export class Game {
     this.timer.update();
     let dt = this.timer.getDelta();
     if (dt > 0.1) dt = 0.1;
+    this._dt = dt;
     this.frame++;
     this.fpsAcc = (this.fpsAcc || 0) + dt; this.fpsN = (this.fpsN || 0) + 1;
     if (this.fpsAcc > 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; this.autoQuality(); }
@@ -138,9 +140,10 @@ export class Game {
     const inp = this.input.poll();
     const p = this.player;
     if (!this.paused) {
-      p.yaw -= inp.lookDX * 0.0022;
+      p.yaw -= inp.lookDX * 0.0022 + inp.turn * dt * 1.9;
       p.pitch -= inp.lookDY * 0.0022;
       p.pitch = Math.max(-1.45, Math.min(1.45, p.pitch));
+      if (inp.wheel) this.camDist = Math.max(1.8, Math.min(7, (this.camDist || 3.4) + inp.wheel * 0.4));
       // fixed sub-steps for stable collision
       this.acc = (this.acc || 0) + dt;
       const h = 1 / 120;
@@ -159,8 +162,11 @@ export class Game {
     // smooth vertical camera on stairs
     this.camY = this.camY == null ? eyeY : this.camY + (eyeY - this.camY) * Math.min(1, dt * 18);
     if (Math.abs(this.camY - eyeY) > 1.5) this.camY = eyeY;
-    this.camera.position.set(p.x, this.camY, p.z);
-    this.camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
+    if (this.viewMode === 'third') this._thirdPersonCamera(p, dt);
+    else {
+      this.camera.position.set(p.x, this.camY, p.z);
+      this.camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
+    }
 
     // indoor state (location label, floor indicator, audio)
     const pa = planAt(this.plans, p.x, p.z, p.y);
@@ -172,6 +178,37 @@ export class Game {
     for (const e of p.events) if (e === 'respawn') this.ui?.toast?.('respawned');
     p.events.length = 0;
     this.renderer.render(this.scene, this.camera);
+  }
+
+  setViewMode(mode) {
+    this.viewMode = mode === 'third' ? 'third' : 'first';
+    setSetting('view', this.viewMode);
+  }
+
+  // Over-the-shoulder camera that never goes through walls, floors or ceilings.
+  _thirdPersonCamera(p, dt) {
+    const want = this.camDist || 3.4;
+    const pitch = Math.max(-1.2, Math.min(1.2, p.pitch));
+    const fx = -Math.sin(p.yaw) * Math.cos(pitch), fz = -Math.cos(p.yaw) * Math.cos(pitch), fy = Math.sin(pitch);
+    const hx = p.x, hy = p.y + 1.6, hz = p.z;
+    // march from the head backwards until something is in the way
+    let d = 0;
+    const step = 0.15;
+    const ceil = this.cw.ceilingHeight(hx, hz, p.y + 0.5);
+    while (d < want) {
+      const nd = d + step;
+      const x = hx - fx * nd, y = hy - fy * nd, z = hz - fz * nd;
+      if (y < this.cw.groundHeight(x, z, y) + 0.25) break;
+      if (y > Math.min(ceil, this.cw.ceilingHeight(x, z, p.y + 0.5)) - 0.2) break;
+      if (!this.cw.isFree(x, z, 0.18, y - 0.25, y + 0.25, 0)) break;
+      d = nd;
+    }
+    const target = Math.max(0.35, d - 0.1);
+    // pull in instantly, ease back out
+    this.camCur = this.camCur == null || target < this.camCur ? target : this.camCur + (target - this.camCur) * Math.min(1, dt * 4);
+    const c = this.camCur;
+    this.camera.position.set(hx - fx * c + Math.cos(p.yaw) * 0.35 * Math.min(1, c / 2), hy - fy * c, hz - fz * c - Math.sin(p.yaw) * 0.35 * Math.min(1, c / 2));
+    this.camera.rotation.set(pitch, p.yaw, 0, 'YXZ');
   }
 
   autoQuality() {

@@ -10,6 +10,7 @@ const DEFAULTS = {
   weather: 'autumn',     // autumn | sunny | overcast | rain | night
   showFps: false,
   subtitlesDe: true,     // show German original under Chinese dialogue lines
+  view: 'first',         // 'first' | 'third' person camera
 };
 
 function load() {
