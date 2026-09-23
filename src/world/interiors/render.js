@@ -91,6 +91,10 @@ export class Interiors {
     this.glassMat = new THREE.MeshStandardMaterial({ color: 0x6f8795, transparent: true, opacity: 0.45, roughness: 0.08, metalness: 0.45, depthWrite: false, side: THREE.DoubleSide });
     this.propMat = propMaterial(globalUniforms, { roughness: 0.65 });
     this.wallMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    // seen from outside, rooms are much darker than the street (the eye adapts once inside)
+    this.dimMats = [this.floorMat, this.ceilMat, this.propMat, this.wallMat].map(m => ({ m, c: m.color.clone(), e: m.emissiveIntensity }));
+    this.dim = -1;
+    this._setDim(globalUniforms.uInnerDim.value);
     this.doors = [];
     for (const P of plans) this._buildPlan(P);
     this._buildFurniture();
@@ -354,7 +358,15 @@ export class Interiors {
     return Math.hypot(u.x - p.x, u.z - p.z) - u.r < 30;
   }
 
+  _setDim(v) {
+    if (Math.abs(v - this.dim) < 0.002) return;
+    this.dim = v;
+    for (const d of this.dimMats) { d.m.color.copy(d.c).multiplyScalar(v); if (d.e != null) d.m.emissiveIntensity = d.e * v; }
+    globalUniforms.uInnerDim.value = v;
+  }
+
   update(dt, game) {
+    this._setDim(this.dim + ((game.indoor ? 1 : 0.42) - this.dim) * Math.min(1, dt * 2.5));
     // automatic doors open when the player (or anybody tracked) is near
     const p = game.player;
     const people = game.crowd ? game.crowd.positions() : null;

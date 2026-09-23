@@ -10,6 +10,7 @@ export const FACADE_PARS = /* glsl */`
 uniform float uNight;
 uniform float uWet;
 uniform float uSunVis;
+uniform float uInnerDim;
 varying vec4 vF;   // u along edge (m), height (m), edge length (m), wall top (m)
 varying vec4 vS;   // style id, level height, seed, levels
 float fHash(vec3 p) { p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -275,7 +276,7 @@ vec3 fTv;
         if (sg.x < 0.0 || sg.x > ow || sg.y < 0.0 || sg.y > oh) shade = 1.0 - 0.5 * uSunVis;
       }
       float hsh = fHash(vec3(cellId, fl, seed + 11.0));
-      float blind = blindOK < 0.5 ? 0.0 : hsh < 0.52 ? 0.0 : hsh < 0.85 ? (hsh - 0.52) * 2.4 : 1.0;
+      float blind = blindOK < 0.5 ? 0.0 : hsh < 0.66 ? 0.0 : hsh < 0.9 ? (hsh - 0.66) * 3.0 : 1.0;
       bool inBlind = g.y / oh > 1.0 - blind;
       float lit = step(fHash(vec3(cellId, fl, seed + 23.0)), litP) * uNight;
       vec3 warm = mix(vec3(1.0, 0.78, 0.5), vec3(0.85, 0.9, 1.0), step(0.7, fHash(vec3(cellId, fl, seed + 29.0))));
@@ -284,7 +285,7 @@ vec3 fTv;
       if (fr > 0.5) { fCol = frameCol * shade; fRough = 0.5; fMetal = 0.2; }
       else if (inBlind) {
         float slat = 0.8 + 0.2 * smoothstep(0.35, 0.65, fract(g.y * 12.5));
-        fCol = (kind == 1 ? vec3(0.8, 0.79, 0.76) : vec3(0.62, 0.63, 0.64)) * mix(0.9, slat, fine2) * shade;
+        fCol = (kind == 1 ? vec3(0.8, 0.79, 0.76) : vec3(0.47, 0.49, 0.51)) * mix(0.9, slat, fine2) * shade;
         fRough = 0.55; fMetal = kind == 1 ? 0.0 : 0.3;
         fEmis = warm * lit * 0.3;
       } else if (kind == 2) {
@@ -315,6 +316,7 @@ vec3 fTv;
 #ifdef CUTOUT
 if (fGlass > 0.5) discard;
 #endif
+if (vS.x > 19.5) fCol *= uInnerDim;
 diffuseColor.rgb = fCol;
 `;
 

@@ -22,6 +22,17 @@ export const FURNITURE = {
     s.box(0.04, 0.32, 0.5, -0.2, 0.93, -0.2, BLACK); s.box(0.03, 0.28, 0.46, -0.18, 0.93, -0.2, '#9fc4e8', 0, 0, 0.35); // monitor
     return s.build();
   },
+  // electronics workbench: oscilloscope, power supply, function generator, breadboard, monitor
+  labbench: () => {
+    const s = new Shape(); s.box(0.8, 0.05, 1.8, 0, 0.9, 0, '#c9c2b0'); legs(s, 1.8, 0.8, 0.88, GREY, 0.03);
+    s.box(0.3, 0.02, 1.7, -0.25, 1.45, 0, '#9da3a8'); s.box(0.04, 0.55, 0.04, -0.37, 1.18, -0.85, GREY); s.box(0.04, 0.55, 0.04, -0.37, 1.18, 0.85, GREY);
+    s.box(0.3, 0.2, 0.35, -0.2, 1.03, -0.55, '#4a4f55'); s.box(0.02, 0.13, 0.2, -0.05, 1.05, -0.58, '#7fd6ff', 0, 0, 0.6);       // oscilloscope
+    s.box(0.28, 0.14, 0.26, -0.22, 1.54, -0.5, '#e4e2dc'); s.box(0.02, 0.05, 0.1, -0.075, 1.56, -0.54, '#ff5a3c', 0, 0, 0.6);  // power supply
+    s.box(0.28, 0.12, 0.3, -0.22, 1.53, 0.1, '#3f4449'); s.box(0.02, 0.04, 0.14, -0.075, 1.55, 0.08, '#8cff9a', 0, 0, 0.6);    // function generator
+    s.box(0.18, 0.015, 0.28, 0.1, 0.93, 0.05, '#f2f0e8'); for (let i = 0; i < 5; i++) s.box(0.005, 0.01, 0.2, 0.05 + i * 0.025, 0.94, 0.05, ['#d22', '#22d', '#2a2', '#dd2', '#222'][i]); // breadboard + wires
+    s.box(0.04, 0.32, 0.52, -0.22, 1.1, 0.6, BLACK); s.box(0.02, 0.28, 0.48, -0.195, 1.1, 0.6, '#a9d2f5', 0, 0, 0.4);         // monitor
+    return s.build();
+  },
   pcdesk: () => {
     const s = new Shape(); s.box(0.75, 0.04, 1.4, 0, 0.73, 0, LAM); legs(s, 1.4, 0.75, 0.72);
     for (const z of [-0.35, 0.35]) { s.box(0.04, 0.34, 0.54, -0.18, 0.96, z, BLACK); s.box(0.02, 0.3, 0.5, -0.155, 0.96, z, '#a9d2f5', 0, 0, 0.45); s.box(0.18, 0.02, 0.42, 0.12, 0.76, z, '#2a2c2f'); }

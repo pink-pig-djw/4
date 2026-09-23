@@ -13,6 +13,7 @@ export const globalUniforms = {
   uTime: { value: 0 },
   uWind: { value: 0.8 },  // tree sway strength
   uSunVis: { value: 0.55 }, // how visible direct sun shadows are (weather)
+  uInnerDim: { value: 0.42 }, // interiors seen from outside are darker (eye adaptation)
   uLeafTint: { value: 1 },
 };
 
@@ -23,6 +24,7 @@ export function createFacadeMaterial(cutout = false) {
     sh.uniforms.uNight = globalUniforms.uNight;
     sh.uniforms.uWet = globalUniforms.uWet;
     sh.uniforms.uSunVis = globalUniforms.uSunVis;
+    sh.uniforms.uInnerDim = globalUniforms.uInnerDim;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 aF;\nattribute vec4 aS;\nvarying vec4 vF;\nvarying vec4 vS;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvF = aF; vS = aS;');

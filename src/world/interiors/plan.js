@@ -9,6 +9,7 @@ export const ENTERABLE = [
   { key: 'hoersaal', id: 'w149469609', program: 'lecture', title: { de: 'Hörsaalgebäude', zh: '报告厅楼' } },
   { key: 'rrze', id: 'w25358914', program: 'rrze', title: { de: 'Regionales Rechenzentrum (RRZE)', zh: '区域计算中心 RRZE' } },
   { key: 'mathe', id: 'r3570551', program: 'math', title: { de: 'Felix-Klein-Gebäude · Mathematik', zh: '数学楼 Felix-Klein-Gebäude' } },
+  { key: 'eei', id: 'w265738549', program: 'eei', title: { de: 'Elektrotechnik (EEI)', zh: '电子工程楼 Elektrotechnik (EEI)' } },
 ];
 
 const SLAB = 0.3;          // floor slab thickness
@@ -18,6 +19,7 @@ const DOOR_H = 2.15;
 
 const ROOM_NAMES = {
   seminar: { de: 'Seminarraum', zh: '研讨室' },
+  labor: { de: 'Labor', zh: '实验室' },
   uebung: { de: 'Übungsraum', zh: '练习室' },
   buero: { de: 'Büro', zh: '办公室' },
   sekretariat: { de: 'Sekretariat', zh: '秘书处' },
@@ -439,7 +441,23 @@ function furnishRoom(P, rm, side, k) {
   P.light(cs, ct, k, Math.min(ws - 1, 2.4), 0.6);
   if (ws > 7 || wt > 7) P.light(cs, ct + (wt > ws ? wt / 4 : 0), k, 1.2, 0.6);
   const inside = (s, t) => { if (!P.inside(s, t, 0.6)) return false; const w = P.W(s, t); return !P.nearExtDoor(w[0], w[1], 2.6); };
-  if (rm.kind === 'seminar' || rm.kind === 'uebung' || rm.kind === 'lernraum') {
+  if (rm.kind === 'labor') {
+    // electronics lab: rows of workbenches with instruments, a board at one end
+    const alongS = ws >= wt;
+    const L0 = alongS ? s0 : t0, L1 = alongS ? s1 : t1, M0 = alongS ? t0 : s0, M1 = alongS ? t1 : s1;
+    const bs = alongS ? L0 + 0.12 : cs, bt = alongS ? ct : L0 + 0.12;
+    if (inside(bs + (alongS ? 0.5 : 0), bt + (alongS ? 0 : 0.5))) P.item('board', bs, bt, k, alongS ? 1 : 0, alongS ? 0 : 1);
+    for (let l = L0 + 2.4; l < L1 - 1.2; l += 2.3) {
+      for (let m = M0 + 1.2; m < M1 - 1.1; m += 2.1) {
+        const s = alongS ? l : m + 0.9, t = alongS ? m + 0.9 : l;
+        if (!inside(s, t)) continue;
+        P.item('labbench', s, t, k, alongS ? -1 : 0, alongS ? 0 : -1);
+        P.item('chair', s + (alongS ? 0.6 : 0), t + (alongS ? 0 : 0.6), k, alongS ? -1 : 0, alongS ? 0 : -1);
+        if (P.r() < 0.35) P.npcSpots.push({ kind: 'sitChair', ...xz(P.W(s + (alongS ? 0.6 : 0), t + (alongS ? 0 : 0.6))), y, yaw: yawOfLocal(P.F, alongS ? -1 : 0, alongS ? 0 : -1) });
+      }
+    }
+    if (inside(s1 - 0.4, t0 + 0.6)) P.item('shelf', s1 - 0.3, t0 + 0.8, k, -1, 0);
+  } else if (rm.kind === 'seminar' || rm.kind === 'uebung' || rm.kind === 'lernraum') {
     // board on one end wall, table rows facing it
     const alongS = ws >= wt;
     const L0 = alongS ? s0 : t0, L1 = alongS ? s1 : t1, M0 = alongS ? t0 : s0, M1 = alongS ? t1 : s1;
@@ -675,6 +693,11 @@ function rrzeRooms(k, idx, w) {
   if (k === 0) return w >= 9 ? 'cip' : w >= 7 ? 'seminar' : idx % 4 === 1 ? 'service' : 'buero';
   return w >= 9 ? 'uebung' : w >= 7 ? 'besprechung' : 'buero';
 }
+function eeiRooms(k, idx, w) {
+  if (k === 0) return w >= 9 ? 'labor' : w >= 7 ? 'seminar' : idx % 3 === 0 ? 'lernraum' : 'labor';
+  if (k === 1) return w >= 9 ? 'cip' : w >= 7 ? 'labor' : idx % 4 === 0 ? 'sekretariat' : 'buero';
+  return w >= 9 ? 'labor' : w >= 7 ? (idx % 2 ? 'besprechung' : 'seminar') : idx % 5 === 0 ? 'kueche' : 'buero';
+}
 function mathRooms(k, idx, w) {
   if (k === 0) return w >= 9 ? 'seminar' : w >= 7 ? 'uebung' : idx % 3 === 0 ? 'lernraum' : 'seminar';
   if (k === 1) return w >= 9 ? 'bibliothek' : w >= 7 ? 'seminar' : 'buero';
@@ -714,6 +737,7 @@ export function buildPlans(world) {
     }
     if (spec.program === 'math') ringProgram(P, { topLevel: Math.min(P.levels - 1, 4), roomKind: mathRooms, server: false });
     else if (spec.program === 'rrze') ringProgram(P, { topLevel: Math.min(P.levels - 1, 1), roomKind: rrzeRooms, server: true });
+    else if (spec.program === 'eei') ringProgram(P, { topLevel: Math.min(P.levels - 1, 4), roomKind: eeiRooms, server: false });
     else if (spec.program === 'mensa') mensaProgram(P);
     else if (spec.program === 'lecture') lectureProgram(P);
     // walk-in test for every exterior door
@@ -795,7 +819,7 @@ export function buildInteriorColliders(world, cw, plans = null) {
 // furniture colliders: [width across facing, depth along facing, height, walkableTop]
 // (yaw = facing direction; box local x = perpendicular to facing)
 export const FURN_COLLIDER = {
-  table: [1.4, 0.7, 0.75], bigtable: [3.6, 1.4, 0.75], desk: [1.6, 0.8, 0.75], pcdesk: [1.4, 0.75, 0.75], mtable: [0.8, 1.6, 0.75],
+  table: [1.4, 0.7, 0.75], labbench: [1.8, 0.8, 0.95], bigtable: [3.6, 1.4, 0.75], desk: [1.6, 0.8, 0.75], pcdesk: [1.4, 0.75, 0.75], mtable: [0.8, 1.6, 0.75],
   studytable: [1.8, 1.0, 0.75], smalltable: [0.8, 0.8, 0.75], shelf: [1.0, 0.4, 2.0], bookshelf: [3.0, 0.5, 2.1], rack: [0.7, 1.1, 2.1],
   counter: [2.5, 0.9, 1.1], kasse: [1.4, 0.8, 1.0], trayreturn: [3.0, 0.9, 1.4], aufwerter: [0.7, 0.5, 1.8], cafebar: [5, 1.0, 1.1],
   kitchen: [2.4, 0.65, 0.95], column: [0.6, 0.6, 3.4], lectern: [1.0, 0.7, 1.1], elevator: [2.2, 2.2, 3.4], bench: [1.8, 0.5, 0.45, true],
