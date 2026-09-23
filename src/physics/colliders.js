@@ -58,12 +58,12 @@ export function addWorldColliders(world, layout, cw, skipBuildings = new Set()) 
       }
       cw.addCircle(m.x, m.z, r > 4 ? r * 0.32 : Math.min(0.62, r * 0.22), y - 0.3, y + 6, 'fountain');
     } else {
-      const h = { statue: 0.75, bust: 0.4, sculpture: 0.9, stone: 0.65, monument: 0.6 }[m.k] || 0.6;
+      const h = { statue: 0.55, bust: 0.35, sculpture: 0.75, stone: 0.6, monument: 0.6 }[m.k] || 0.6;
       cw.addBox(m.x, m.z, h, h, 0, y - 0.3, y + 2.5, false, m.k);
     }
   }
   for (const pc of layout.barrierPieces) {
-    const thick = pc.k === 'hedge' ? 0.9 : pc.k === 'wall' || pc.k === 'city_wall' ? 0.3 : 0.08;
+    const thick = pc.t ?? (pc.k === 'hedge' ? 0.9 : pc.k === 'wall' || pc.k === 'city_wall' ? 0.3 : 0.08);
     groundSegment(cw, pc.a[0], pc.a[1], pc.b[0], pc.b[1], pc.h, thick, pc.k);
   }
   // ponds: visible water edge, with gaps where a mapped path/bridge crosses the water

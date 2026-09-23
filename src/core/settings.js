@@ -11,6 +11,7 @@ const DEFAULTS = {
   showFps: false,
   subtitlesDe: true,     // show German original under Chinese dialogue lines
   view: 'first',         // 'first' | 'third' person camera
+  region: 'suedgelaende', // map: 'suedgelaende' (Erlangen) | 'nuernberg'
 };
 
 function load() {

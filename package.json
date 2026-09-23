@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "fetch": "node tools/fetch-osm.mjs",
-    "world": "node tools/build-world.mjs",
+    "world": "node --max-old-space-size=12000 tools/build-world.mjs",
     "build": "node build.mjs",
     "dev": "node dev.mjs",
-    "test": "node tools/walk-test.mjs",
+    "test": "node --max-old-space-size=8192 tools/walk-test.mjs suedgelaende && node --max-old-space-size=8192 tools/walk-test.mjs nuernberg",
     "build:exe": "node build.mjs && node tools/build-exe.mjs",
     "dem": "node tools/fetch-dem.mjs"
   },

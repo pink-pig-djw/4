@@ -9,6 +9,7 @@ import { groundY } from './terrain.js';
 import { hash2 } from '../shared/geom.js';
 
 const CHUNK = 160;
+const SANDSTONE = ['#b98a6c', '#c09474', '#a87a5e', '#b28468'];
 
 // fence infill textures (white = wire/board, alpha = coverage); tinted by the material colour
 function fenceTexture(kind) {
@@ -110,9 +111,17 @@ export class Barriers {
         for (let k = 0; k < n; k++) {
           const s = (k + 0.5) * len / n, x = ax + ux * s, z = az + uz * s;
           const ga = groundY(ax + ux * k * len / n, az + uz * k * len / n), gb = groundY(ax + ux * (k + 1) * len / n, az + uz * (k + 1) * len / n);
-          const lo = Math.min(ga, gb) - 0.2, top = Math.max(ga, gb) + pc.h;
-          c.shape.box(len / n + 0.02, top - lo, 0.3, x, (lo + top) / 2, z, col, 0, rot);
-          c.shape.box(len / n + 0.02, 0.06, 0.38, x, top + 0.03, z, '#8b8a86', 0, rot);   // coping
+          const lo = Math.min(ga, gb) - 0.2, top = Math.max(ga, gb) + pc.h, th = pc.t || 0.3;
+          if (th > 1) {
+            // town wall of sandstone with a roofed wall-walk (Wehrgang)
+            const sc = SANDSTONE[Math.floor(hash2(Math.round(ax / 9), Math.round(az / 9)) * SANDSTONE.length)];
+            c.shape.box(len / n + 0.02, top - lo, th, x, (lo + top) / 2, z, sc, 0, rot);
+            c.shape.box(len / n + 0.02, 0.35, th + 0.5, x, top + 1.9, z, '#6f4533', 0, rot);   // roof
+            c.shape.box(len / n + 0.02, 1.7, 0.2, x, top + 0.85, z, '#5d4a3a', 0, rot);   // timber wall of the wall-walk
+          } else {
+            c.shape.box(len / n + 0.02, top - lo, th, x, (lo + top) / 2, z, col, 0, rot);
+            c.shape.box(len / n + 0.02, 0.06, th + 0.08, x, top + 0.03, z, '#8b8a86', 0, rot);   // coping
+          }
         }
         continue;
       }

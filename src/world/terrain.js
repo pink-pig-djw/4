@@ -346,10 +346,11 @@ export function gradeSite(world, t) {
     }
   }
   gradeEntrances(world, t);
-  // ponds: the water surface is level at the lowest shore, the bed lies below it
+  // ponds: the water surface is level at the lowest shore, the bed lies below it; along a river
+  // the level follows the shore nearby (waterLevelAt)
   for (const a of world.areas) {
     if (a.k !== 'water') continue;
-    const lvl = waterLevel(a, t);
+    waterLevel(a, t);
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
     for (const [x, z] of a.p) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
     const c = t.cell;
@@ -358,12 +359,13 @@ export function gradeSite(world, t) {
         const x = t.x0 + i * c, z = t.z0 + j * c;
         if (!inPoly(x, z, a.p) || (a.hl && a.hl.some(h => inPoly(x, z, h)))) continue;
         const k = j * t.nx + i;
-        t.h[k] = Math.min(t.h[k], lvl - 0.5);
+        t.h[k] = Math.min(t.h[k], waterLevelAt(a, x, z, t) - 0.5);
       }
   }
   // abutments last: the ground at every free bridge end is back at deck level (lowering nearby
   // grid points for an underpass or a pond must not leave a step between the path and the deck)
-  for (const d of bridgeDecks(world)) if (d.slab) t.raise(d.ax + d.dx * 0.5, d.az + d.dz * 0.5, d.y - 0.03, 1.0, 3.5);
+  // (road bridges: the whole head; footbridges: a narrow abutment)
+  for (const d of bridgeDecks(world)) if (d.slab) { const r0 = d.hw >= 3 ? 2.2 : 1.0; t.raise(d.ax + d.dx * 0.5, d.az + d.dz * 0.5, d.y - 0.03, r0, r0 + 2.5); }
 }
 
 function inPoly(x, z, poly) {
@@ -381,6 +383,20 @@ export function waterLevel(a, t = active) {
   let lo = Infinity;
   for (const [x, z] of a.p) lo = Math.min(lo, t ? t.height(x, z) : 0);
   return (a._lvl = lo - 0.05);
+}
+
+// Water level at a point: a pond is level (lowest shore); a river falls along its course, so its
+// level is the lowest shore point in the neighbourhood (shore heights cached before grading).
+export function waterLevelAt(a, x, z, t = active) {
+  const g = waterLevel(a, t);
+  if (a.p.length < 8) return g;
+  if (!a._shore) a._shore = a.p.map(([px, pz]) => [px, pz, t ? t.height(px, pz) : 0]);
+  let dmin = Infinity;
+  for (const [px, pz] of a._shore) dmin = Math.min(dmin, (px - x) ** 2 + (pz - z) ** 2);
+  const R2 = Math.max(60 * 60, dmin * 2.6);
+  let lo = Infinity;
+  for (const [px, pz, h] of a._shore) if ((px - x) ** 2 + (pz - z) ** 2 <= R2) lo = Math.min(lo, h);
+  return lo === Infinity ? g : Math.max(g, lo - 0.05);
 }
 
 export function setTerrain(t) { active = t; }

@@ -25,7 +25,7 @@ export class UI {
   }
 
   // ---------- start / loading ----------
-  showStart() {
+  showStart(region = 'suedgelaende') {
     return new Promise(resolve => {
       const el = document.createElement('div');
       el.className = 'screen start';
@@ -42,8 +42,8 @@ export class UI {
             <h1>${t('title')}</h1>
             <p class="sub">${t('subtitle')}</p>
             <div class="regions">
-              <div class="region on"><b>Erlangen</b><span>${t('regionAll')}</span></div>
-              <div class="region off"><b>Innenstadt · Nürnberg</b><span>${t('comingSoon')}</span></div>
+              <button class="region ${region === 'suedgelaende' ? 'on' : ''}" data-region="suedgelaende"><b>Erlangen</b><span>${t('regionAll')}</span></button>
+              <button class="region ${region === 'nuernberg' ? 'on' : ''}" data-region="nuernberg"><b>Nürnberg</b><span>${t('regionNbg')}</span></button>
             </div>
             <div class="start-row">
               <label>${t('quality')}</label>
@@ -55,10 +55,11 @@ export class UI {
           </div>`;
         el.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { setSetting('lang', b.dataset.lang); render(); });
         el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { setSetting('quality', b.dataset.q); render(); });
+        el.querySelectorAll('[data-region]').forEach(b => b.onclick = () => { region = b.dataset.region; render(); });
         el.querySelector('.go').onclick = () => {
           if (this.isTouch) this.requestFullscreen();
           this.startedByClick = true;
-          el.remove(); resolve();
+          el.remove(); resolve(region);
         };
       };
       render();
@@ -409,14 +410,15 @@ export class UI {
       const park = (w.parks || []).find(k => Math.abs(k.p[0][0] - p.x) < 1500 && pointInPoly(p.x, p.z, k.p));
       const dist = this.district(p.x, p.z);
       const zhOf = n => settings.lang === 'zh' ? PLACE_ZH[n] : null;
+      const city = w.meta.city || 'Erlangen';
       if (park) {
         this.locName.textContent = park.n;
-        this.locSub.textContent = [zhOf(park.n), street].filter(Boolean).join(' · ') || `Erlangen · ${dist}`;
+        this.locSub.textContent = [zhOf(park.n), street].filter(Boolean).join(' · ') || `${city} · ${dist}`;
       } else if (street) {
         this.locName.textContent = street;
-        this.locSub.textContent = `Erlangen · ${zhOf(dist) || dist}`;
+        this.locSub.textContent = `${city} · ${zhOf(dist) || dist}`;
       } else {
-        this.locName.textContent = 'Erlangen';
+        this.locName.textContent = city;
         this.locSub.textContent = zhOf(dist) || dist;
       }
     }
@@ -427,7 +429,7 @@ export class UI {
     for (const f of w.meta.focus || []) { const [x0, z0, x1, z1] = f.b; if (x >= x0 && x <= x1 && z >= z0 && z <= z1) return f.n; }
     let best = null, bd = 1500;
     for (const d of w.districts || []) { const dd = Math.hypot(d.x - x, d.z - z) * (d.k === 'locality' ? 1.6 : 1); if (dd < bd) { bd = dd; best = d.n; } }
-    return best || 'Erlangen';
+    return best || w.meta.city || 'Erlangen';
   }
 }
 

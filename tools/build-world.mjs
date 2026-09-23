@@ -193,6 +193,12 @@ function facadeStyle(kind, tags, a, levels) {
   // cornices; stone ones (the Schloss, Orangerie) sandstone ashlar
   const arch = (tags['building:architecture'] || '').toLowerCase();
   const listed = tags.heritage || tags['ref:BLfD'] || tags.historic === 'building' || tags.historic === 'castle' || tags.historic === 'manor';
+  if (region.stone && mat !== 'plaster' && mat !== 'brick' && mat !== 'concrete' && mat !== 'glass') {
+    const name = tags.name || '';
+    if (kind === 'church' || kind === 'chapel' || kind === 'cathedral' || tags.amenity === 'place_of_worship') return 'gothic';
+    const tower = kind === 'tower' || tags.man_made === 'tower' || tags['tower:type'] === 'defensive' || /[Tt]urm\b|turm$/.test(name);
+    if (tower || tags.historic === 'castle' || tags.historic === 'city_gate' || /Kaiserburg|Burg\b/.test(name) || (listed && /stone/.test(mat))) return 'ashlar';
+  }
   if (kind !== 'church' && kind !== 'chapel' && (HISTORIC_ARCH.test(arch) || (listed && !SMALL.has(kind) && kind !== 'roof'))) {
     return (/stone|sandstone|limestone/.test(mat) || tags.historic === 'castle') ? 'ashlar' : 'baroque';
   }
@@ -307,7 +313,7 @@ function styleColor(style, tags, seed) {
   switch (style) {
     case 'plaster': case 'church': return PALETTE_PLASTER[Math.floor(r * PALETTE_PLASTER.length)];
     case 'baroque': return PALETTE_BAROQUE[Math.floor(r * PALETTE_BAROQUE.length)];
-    case 'ashlar': return 0xcdb48a;
+    case 'ashlar': case 'gothic': return region.stone ? region.stone.palette[Math.floor(r * region.stone.palette.length)] : 0xcdb48a;
     case 'brick': return 0x9a4e3a;
     case 'panel': return 0x3a3d40;
     case 'glass': return 0x6f8391;
@@ -329,11 +335,20 @@ const LANDMARK_KIND = new Set(['university', 'college', 'school', 'church', 'cha
 const landmark = new Set();
 const idSeed = id => { let s = 0; for (const ch of id) s = (s * 31 + ch.charCodeAt(0)) >>> 0; return s; };
 
+// castle grounds (historic=castle areas): every building inside belongs to the castle
+let castleAreas = null;
+function inCastle(c) {
+  if (!castleAreas) castleAreas = polys.filter(pl => pl.tags && pl.tags.historic === 'castle' && !pl.tags.building && pl.outer.length > 3);
+  return castleAreas.some(pl => pointInPoly(c[0], c[1], pl.outer));
+}
+
 function pushBuilding(rec, parentRec, outlineIndex) {
   const hi = heightInfo(rec, parentRec?.tags);
   const t = rec.tags;
   const seed = idSeed(rec.id);
-  const style = facadeStyle(hi.kind, { ...(parentRec?.tags || {}), ...t }, (parentRec || rec).a, hi.levels);
+  const allTags = { ...(parentRec?.tags || {}), ...t };
+  if (region.stone && !allTags.historic && inCastle(rec.c || centroid(rec.outer))) allTags.historic = 'castle';
+  const style = facadeStyle(hi.kind, allTags, (parentRec || rec).a, hi.levels);
   const colTags = { 'building:colour': t['building:colour'] || parentRec?.tags['building:colour'] };
   const b = {
     id: rec.id,
@@ -434,6 +449,7 @@ for (const w of ways.values()) {
   const hw = t.highway;
   if (!(hw in ROAD_W) || hw === 'bus_stop') continue;
   if (t.area === 'yes') continue;
+  if (t.man_made === 'bridge') continue;          // a bridge's outline, not a way along it
   if (t.indoor === 'yes' || hw === 'corridor') continue;
   if (t.level && num(t.level) !== 0 && !t.layer) continue;
   if (t.tunnel && t.tunnel !== 'no' && t.tunnel !== 'building_passage') continue;
@@ -541,12 +557,13 @@ for (const w of ways.values()) {
   if (!['fence', 'hedge', 'wall', 'retaining_wall', 'guard_rail', 'city_wall', 'handrail'].includes(k)) continue;
   if (!wayTouches(w)) continue;
   let h = num(t.height);
-  if (!Number.isFinite(h)) h = k === 'hedge' ? 1.3 : k === 'wall' ? 1.6 : k === 'retaining_wall' ? 0.6 : k === 'guard_rail' ? 0.75 : k === 'handrail' ? 1.0 : 1.5;
+  if (!Number.isFinite(h)) h = k === 'hedge' ? 1.3 : k === 'wall' ? 1.6 : k === 'retaining_wall' ? 0.6 : k === 'guard_rail' ? 0.75 : k === 'handrail' ? 1.0 : k === 'city_wall' && region.cityWall ? region.cityWall.h : 1.5;
   // split at gate nodes (leave 3.2 m openings)
   const gates = new Set(w.nodes.filter(id => { const n = nodes.get(id); return n?.tags && (n.tags.barrier === 'gate' || n.tags.barrier === 'swing_gate' || n.tags.barrier === 'lift_gate' || n.tags.barrier === 'entrance' || n.tags.entrance); }));
   const pts = w.nodes.map(id => nodes.get(id)).filter(Boolean);
   for (const pc of clipLine(pts.map(n => n.p))) {
     const rec = { p: pc.map(rp), k, h: r2(h) };
+    if (k === 'city_wall' && region.cityWall) rec.t = region.cityWall.t;
     const gIdx = [];
     pc.forEach((p, i) => { const n = pts.find(n => n.p === p); if (n && gates.has(n.id)) gIdx.push(i); });
     if (gIdx.length) rec.g = gIdx;
@@ -880,6 +897,13 @@ for (const [id, m] of nodeUse) {
 
 // ---------- simpler ordinary buildings between the focus areas ----------
 {
+  if (region.dormers) {
+    const PITCHED = new Set(['gabled', 'hipped', 'half-hipped', 'gambrel', 'mansard', 'side_hipped']);
+    const KINDS = new Set(['apartments', 'yes', 'house', 'residential', 'commercial', 'retail', 'hotel', 'office', 'terrace', 'detached']);
+    let n = 0;
+    for (const b of buildings) if (PITCHED.has(b.rs) && KINDS.has(b.k) && b.h - b.wh >= 3 && b.mh < 0.1) { b.dm = 1; n++; }
+    console.log(`buildings: ${n} steep roofs with dormers`);
+  }
   const focus = (region.focus || []).map(f => { const [s, w, n, e] = f.bbox; const [x0, z1] = proj(s, w), [x1, z0] = proj(n, e); return [x0, z0, x1, z1]; });
   let simple = 0;
   if (focus.length) buildings.forEach((b, i) => {
@@ -940,7 +964,7 @@ const monuments = [];
     if (num(t.min_height) >= 1 || num(t.level) >= 1) continue;     // on a facade or arch, not on the ground
     const [x, z] = n.p; if (!inBounds(x, z)) continue;
     if (buildingAt(x, z) >= 0 || (FIG.has(k) && nearBuilding(x, z, 1.5) >= 0)) continue;
-    monuments.push({ k, x: r2(x), z: r2(z), r: k === 'fountain' ? 1.6 : 0, n: t.name || null });
+    monuments.push({ k, x: r2(x), z: r2(z), r: k === 'fountain' ? 1.25 : 0, n: t.name || null });   // a fountain mapped as a point: a small basin
   }
   for (const w of ways.values()) {
     const t = w.tags; if (!t || !wayTouches(w) || w.nodes[0] !== w.nodes[w.nodes.length - 1]) continue;
@@ -993,6 +1017,21 @@ if (region.dem) {
       const [lo] = T.range(b.p);
       b.y0 = r2(y0); b.yb = r2(Math.min(lo, y0));
     });
+    // a castle mapped only as a point: the buildings up on its rock belong to it (sandstone)
+    if (region.stone) {
+      let n = 0;
+      for (const nd of nodes.values()) {
+        if (nd.tags?.historic !== 'castle' || !inBounds(nd.p[0], nd.p[1], 50)) continue;
+        const gy = T.height(nd.p[0], nd.p[1]);
+        buildings.forEach((b, i) => {
+          if (b.st !== 'plaster' && b.st !== 'baroque' && b.st !== 'plain') return;
+          const c = centroid(b.p);
+          if (Math.hypot(c[0] - nd.p[0], c[1] - nd.p[1]) > 160 || b.y0 < gy - 4) return;
+          b.st = 'ashlar'; b.c = region.stone.palette[i % region.stone.palette.length]; n++;
+        });
+      }
+      if (n) console.log(`buildings: ${n} on a castle rock built of sandstone`);
+    }
     // Bridge decks. The DGM is bare earth: bridges are removed and the gap below is filled from
     // the surroundings, and OSM splits a bridge into many ways (carriageways, slip roads) whose
     // joints in mid-span would sample that fill. So the deck is solved over the whole connected
@@ -1143,7 +1182,8 @@ if (region.dem) {
           near = true;
           if (d > sg.hw + uhw) continue;
           // abutment zone: a way meeting the bridge at grade, nothing passes under it there
-          if (Math.min(sg.a.da + t * sg.L, sg.b.da + (1 - t) * sg.L) < 3 || nearAnchor(x, z, 3.5)) continue;
+          // (for a wide deck the streets meeting it at its head lie within its width)
+          if (Math.min(sg.a.da + t * sg.L, sg.b.da + (1 - t) * sg.L) < 3 || nearAnchor(x, z, Math.max(3.5, sg.hw + 1))) continue;
           on.push([si, t]);
         }
         return { near, on };
@@ -1224,6 +1264,8 @@ if (region.dem) {
 const world = {
   meta: {
     region: regionId, name: region.name, origin: region.origin, bounds: BOUNDS.map(r2), rects: RECTS.map(r => r.map(r2)),
+    city: region.city || 'Erlangen',
+    start: region.start ? { x: r2(proj(...region.start.at)[0]), z: r2(proj(...region.start.at)[1]), lx: r2(proj(...region.start.look)[0]), lz: r2(proj(...region.start.look)[1]) } : null,
     focus: (region.focus || []).map(f => { const [s, w, n, e] = f.bbox; const [x0, z1] = proj(s, w), [x1, z0] = proj(n, e); return { n: f.name, b: [x0, z0, x1, z1].map(r2) }; }),
     osmBase: raw.osm3s?.timestamp_osm_base || null,
     attribution: '© OpenStreetMap contributors (ODbL)' + (terrain ? ' · Gelände: Bayerische Vermessungsverwaltung, DGM1 (CC BY 4.0)' : ''),

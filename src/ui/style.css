@@ -40,6 +40,8 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; margin-right: 6
 .region span { color: var(--muted); }
 .region.on { border-color: rgba(240,176,74,.7); background: rgba(240,176,74,.08); }
 .region.off { opacity: .6; }
+button.region { background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+button.region:hover { border-color: rgba(240,176,74,.45); }
 .start-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .start-row label { color: var(--muted); font-size: 14px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

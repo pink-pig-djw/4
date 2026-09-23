@@ -76,10 +76,10 @@ export class Monuments {
         }
         water.push({ x: m.x, z: m.z, y: y + rim - 0.2, r: r - 0.1 });
       } else if (m.k === 'statue') {
-        s.box(1.3, 1.7, 1.3, m.x, y + 0.85, m.z, STONE);
-        s.box(1.5, 0.15, 1.5, m.x, y + 1.72, m.z, STONE_D);
+        s.box(1.0, 1.6, 1.0, m.x, y + 0.8, m.z, STONE);
+        s.box(1.1, 0.15, 1.1, m.x, y + 1.62, m.z, STONE_D);
         // standing bronze figure
-        const fy = y + 1.8;
+        const fy = y + 1.7;
         s.cyl(0.26, 0.32, 1.1, m.x, fy + 0.55, m.z, BRONZE, 8);          // coat / legs
         s.cyl(0.22, 0.26, 0.55, m.x, fy + 1.35, m.z, BRONZE, 8);         // chest
         s.sphere(0.15, m.x, fy + 1.78, m.z, BRONZE);                     // head
@@ -95,7 +95,7 @@ export class Monuments {
       } else if (m.k === 'sculpture') {
         // abstract sculpture: the shape varies per artwork (no figure is invented)
         const v = Math.abs(Math.round(m.x * 7 + m.z * 13)) % 3;
-        s.box(1.4, 0.25, 1.4, m.x, y + 0.125, m.z, STONE_D);
+        s.box(1.3, 0.25, 1.3, m.x, y + 0.125, m.z, STONE_D);
         if (v === 0) {
           // stacked, offset stone blocks
           for (let i = 0; i < 4; i++) s.box(0.9 - i * 0.12, 0.55, 0.6 - i * 0.05, m.x + (i % 2 ? 0.12 : -0.1), y + 0.52 + i * 0.55, m.z, i % 2 ? STONE : '#a89c86', 0, i * 0.35);

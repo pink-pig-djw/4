@@ -300,6 +300,44 @@ export const DIALOGUES = [
     ub: n('Die Hauptbibliothek ist in der Schuhstraße, ganz in der Nähe vom Schlossgarten. Die Öffnungszeiten stehen auf der Website der UB.',
       '总图书馆在 Schuhstraße，离宫殿花园很近。开放时间以大学图书馆官网为准。', [o('Vielen Dank!', '非常感谢！')]),
   }),
+  // ---------------- Nürnberg ----------------
+  D('nbg-wiso', ['nuernberg', 'wiso'], {
+    start: n('Hallo! Studierst du auch hier in Nürnberg?', '你好！你也在纽伦堡这边上学吗？',
+      [o('Ja. Was ist hier von der FAU?', '是的。FAU 在这边有什么？', 'what'), o('Nein, ich komme aus Erlangen.', '不是，我从埃尔朗根来。', 'er')]),
+    what: n('Hier in der Altstadt sitzt der Fachbereich Wirtschafts- und Sozialwissenschaften – in der Findelgasse und in der Langen Gasse.',
+      '老城这边是 FAU 的经济与社会科学学院——在 Findelgasse 和 Lange Gasse。',
+      [o('Und die Technik?', '那工科呢？', 'tech'), BYE]),
+    tech: n('Die Technische Fakultät ist in Erlangen, auf dem Südgelände. Viele pendeln mit dem Zug – Verbindungen stehen in der DB- oder VGN-Auskunft.',
+      '工学院在埃尔朗根的南校区。很多人坐火车通勤——班次以 DB 或 VGN 官方查询为准。', [BYE]),
+    er: n('Dann bist du wahrscheinlich mit dem Zug gekommen? Der Hauptbahnhof ist gleich im Süden der Altstadt.',
+      '那你大概是坐火车来的吧？中央火车站就在老城南边。', [o('Genau!', '没错！')]),
+  }),
+  D('nbg-burg', ['nuernberg'], {
+    start: n('Warst du schon oben auf der Burg?', '你上过城堡吗？',
+      [o('Welche Burg?', '哪个城堡？', 'which'), o('Ja, tolle Aussicht!', '去过，风景很棒！')]),
+    which: n('Die Kaiserburg, ganz im Norden der Altstadt auf dem Sandsteinfelsen. Von oben siehst du über die ganzen Dächer. Öffnungszeiten und Eintritt stehen auf der offiziellen Website.',
+      '皇帝堡（Kaiserburg），在老城最北边的砂岩山上。从上面能看到整片屋顶。开放时间和门票以官网为准。', [o('Da gehe ich hin!', '我要去看看！')]),
+  }),
+  D('nbg-markt', ['nuernberg'], {
+    start: n('Kennst du den Schönen Brunnen am Hauptmarkt?', '你知道中央集市广场上的"美丽喷泉"（Schöner Brunnen）吗？',
+      [o('Nein, was ist das?', '不知道，那是什么？', 'what')]),
+    what: n('Ein gotischer Brunnen wie ein Kirchturm. Im Gitter hängt ein Messingring – man sagt, wer ihn dreht, hat Glück. Im Advent ist dort der Christkindlesmarkt; die Termine stehen jedes Jahr auf der Website der Stadt.',
+      '一座像教堂尖塔的哥特式喷泉。栏杆上有个黄铜环——据说转一转会带来好运。每到降临节，那里有圣婴市场（Christkindlesmarkt），每年具体日期以市政官网为准。', [o('Das probiere ich!', '我去试试！')]),
+  }),
+  D('nbg-food', ['nuernberg'], {
+    start: n('Hast du schon Nürnberger Rostbratwürstchen probiert?', '你尝过纽伦堡小烤肠吗？',
+      [o('Noch nicht. Was ist besonders daran?', '还没有，有什么特别的？', 'what')]),
+    what: n('Sie sind ganz klein – man isst gleich mehrere, oft „drei im Weggla", also im Brötchen. Oder mit Sauerkraut.',
+      '它们特别小——一次吃好几根，常见的吃法是"三根夹面包"（drei im Weggla），或者配酸菜。', [o('Klingt lecker!', '听起来很好吃！')]),
+  }),
+  D('staff-help-nbg', ['staffnbg'], {
+    start: n('Guten Tag! Kann ich Ihnen helfen?', '您好！需要帮忙吗？',
+      [o('Wo ist hier die Bibliothek?', '这边的图书馆在哪儿？', 'lib'), o('Wie komme ich zum Hauptbahnhof?', '怎么去中央火车站？', 'hbf')]),
+    lib: n('Die Wirtschafts- und Sozialwissenschaften haben eine Zweigbibliothek in der Langen Gasse. Öffnungszeiten: bitte auf der Website der UB nachsehen.',
+      '经济与社会科学学院在 Lange Gasse 有一个图书馆分馆。开放时间以大学图书馆官网为准。', [o('Vielen Dank!', '非常感谢！')]),
+    hbf: n('Nach Süden, durch das Königstor aus der Altstadt hinaus – dann stehen Sie direkt davor. Die Karte öffnen Sie mit „M".',
+      '往南走，穿过国王门（Königstor）出老城，火车站就在正前方。按 "M" 可以打开地图。', [o('Vielen Dank!', '非常感谢！')]),
+  }),
   // ---------------- Tennenlohe ----------------
   D('tennenlohe-way', ['tennenlohe'], {
     start: n('Hallo! Bist du auch in einem der Institute hier?', '你好！你也在这边的研究所吗？',

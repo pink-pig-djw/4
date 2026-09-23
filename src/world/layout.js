@@ -187,8 +187,11 @@ export function computeLayout(world) {
         const hit = ri.intrusion(ax + ux * s, az + uz * s, -0.2);
         if (!hit && start == null) start = s;
         if ((hit || k === n) && start != null) {
-          const end = hit ? Math.max(start, s - (s1 - s0) / n) : s;
-          if (end - start > 0.3) L.barrierPieces.push({ k: b.k, h: b.h, id: L.barrierPieces.length, a: [ax + ux * start, az + uz * start], b: [ax + ux * end, az + uz * end] });
+          // thick walls (town walls) stand back from an opening by half their thickness
+          const trim = b.t ? b.t / 2 + 0.3 : 0;
+          const st0 = start + (start > s0 + 1e-6 ? trim : 0);
+          const end = (hit ? Math.max(start, s - (s1 - s0) / n) : s) - (hit ? trim : 0);
+          if (end - st0 > 0.3) L.barrierPieces.push({ k: b.k, h: b.h, t: b.t, id: L.barrierPieces.length, a: [ax + ux * st0, az + uz * st0], b: [ax + ux * end, az + uz * end] });
           start = null;
         }
       }

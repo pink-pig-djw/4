@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import * as T from './textures.js';
 import { FACADE_PARS, FACADE_MAIN, FACADE_NORMAL } from './facade.js';
 
-export const STYLE_ID = { ribbon: 0, lab: 1, panel: 2, glass: 3, brick: 4, plaster: 5, hall: 6, deck: 7, plain: 8, church: 9, gable: 10, interior: 11, deckmesh: 12, door: 13, baroque: 14, ashlar: 15 };
+export const STYLE_ID = { ribbon: 0, lab: 1, panel: 2, glass: 3, brick: 4, plaster: 5, hall: 6, deck: 7, plain: 8, church: 9, gable: 10, interior: 11, deckmesh: 12, door: 13, baroque: 14, ashlar: 15, gothic: 16 };
 
 // Global uniforms shared by many materials (weather / time of day).
 export const globalUniforms = {

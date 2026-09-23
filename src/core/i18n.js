@@ -3,14 +3,14 @@ import { settings, setSetting, onSettingChange } from './settings.js';
 
 const S = {
   title: { zh: 'FAU 校园 3D 漫游', de: 'FAU Campus 3D-Rundgang' },
-  subtitle: { zh: '埃尔朗根 · 南校区 · Tennenlohe · 老城区', de: 'Erlangen · Südgelände · Tennenlohe · Altstadt' },
+  subtitle: { zh: '埃尔朗根 · 纽伦堡', de: 'Erlangen · Nürnberg' },
   start: { zh: '开始漫游', de: 'Rundgang starten' },
   loading: { zh: '正在搭建校园…', de: 'Campus wird aufgebaut …' },
   disclaimer: {
     zh: '非官方爱好者作品。建筑位置来自 OpenStreetMap 真实数据；外观为风格化还原，室内布局与所有人物均为虚构。',
     de: 'Inoffizielles Fanprojekt. Gebäudepositionen aus echten OpenStreetMap-Daten; Fassaden stilisiert, Innenräume und alle Personen frei erfunden.',
   },
-  attribution: { zh: '地图数据 © OpenStreetMap 贡献者（ODbL）', de: 'Kartendaten © OpenStreetMap-Mitwirkende (ODbL)' },
+  attribution: { zh: '地图数据 © OpenStreetMap 贡献者（ODbL）· 地形：Bayerische Vermessungsverwaltung，DGM1（CC BY 4.0）', de: 'Kartendaten © OpenStreetMap-Mitwirkende (ODbL) · Gelände: Bayerische Vermessungsverwaltung, DGM1 (CC BY 4.0)' },
   controlsDesktop: {
     zh: 'WASD 移动 · 鼠标/方向键 ←→ 转视角 · Shift 跑 · 空格 跳 · E 对话 · V 切换第一/第三人称 · M 地图 · T 天气 · L 语言 · Esc 菜单',
     de: 'WASD Laufen · Maus/Pfeiltasten ←→ Umsehen · Shift Rennen · Leertaste Springen · E Sprechen · V Perspektive · M Karte · T Wetter · L Sprache · Esc Menü',
@@ -61,7 +61,7 @@ const S = {
   fullscreen: { zh: '全屏', de: 'Vollbild' },
   regionSued: { zh: '南校区（技术与自然科学）', de: 'Südgelände (Technik & Naturwissenschaften)' },
   regionAll: { zh: '南校区 · Tennenlohe · 老城区（宫殿、宫廷花园、Kollegienhaus），可连续步行', de: 'Südgelände · Tennenlohe · Altstadt (Schloss, Schlossgarten, Kollegienhaus) – durchgehend begehbar' },
-  comingSoon: { zh: '纽伦堡校区：后续版本', de: 'Nürnberg: in einer späteren Version' },
+  regionNbg: { zh: '老城：FAU 经济与社会科学（Findelgasse、Lange Gasse）、皇帝堡、圣洛伦茨教堂、中央集市广场、城墙', de: 'Altstadt: FAU Wirtschafts- und Sozialwissenschaften (Findelgasse, Lange Gasse), Kaiserburg, St. Lorenz, Hauptmarkt, Stadtmauer' },
   cat_uni: { zh: '教学楼', de: 'Uni-Gebäude' },
   cat_stop: { zh: '公交站', de: 'Haltestellen' },
   cat_street: { zh: '街道', de: 'Straßen' },

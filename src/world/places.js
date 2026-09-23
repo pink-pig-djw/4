@@ -93,6 +93,13 @@ export function setupSpawn(game) {
   if (stop) { sx = stop.spawn.x; sz = stop.spawn.z; }
   else if (mensa) { sx = mensa.spawn.x; sz = mensa.spawn.z; }
   if (mensa) yaw = Math.atan2(-(mensa.x - sx), -(mensa.z - sz));
+  // a region may define its own start view (Nürnberg: in front of FAU's Findelgasse building)
+  const st = game.world.meta.start;
+  if (st) {
+    const dx = st.x - st.lx, dz = st.z - st.lz, l = Math.hypot(dx, dz) || 1;
+    const p = findFreeNear(game.cw, st.x, st.z, dx / l, dz / l, [0, 1.5, 3, 5, 8]) || { x: st.x, z: st.z };
+    sx = p.x; sz = p.z; yaw = Math.atan2(-(st.lx - sx), -(st.lz - sz));
+  }
   let q = null;
   try { q = new URLSearchParams(location.search).get('at'); } catch (e) { /* file:// */ }
   let sy = null;

@@ -5,7 +5,7 @@
 // Natural cover (forest floor, meadow, fields, scrub) comes from a land-cover texture blended in
 // the terrain shader; artificial surfaces are real geometry, subdivided so it follows the ground.
 import * as THREE from 'three';
-import { getTerrain, groundY, bridgeDecks, bridgeRailings, fitSlab, deckRamp, waterLevel } from './terrain.js';
+import { getTerrain, groundY, bridgeDecks, bridgeRailings, fitSlab, deckRamp, waterLevelAt } from './terrain.js';
 import * as T from './textures.js';
 import { globalUniforms } from './materials.js';
 
@@ -170,12 +170,13 @@ export function buildGround(world, mats, renderer) {
     for (const m of flatLayers(world, mats, false)) group.add(m);
   }
 
-  // ---- water: flat at the lowest shore ----
+  // ---- water: ponds level at the lowest shore, rivers following their shore ----
   {
     const b = new GroundBuf(0);
+    b.tn = false;
     for (const a of world.areas) {
       if (a.k !== 'water') continue;
-      try { polygon(b, a.p, a.hl, waterLevel(a)); } catch (e) { /* degenerate */ }
+      try { polygon(b, a.p, a.hl, p => waterLevelAt(a, p[0], p[1])); } catch (e) { /* degenerate */ }
     }
     for (const m of b.meshes(mats.water)) group.add(m);
   }

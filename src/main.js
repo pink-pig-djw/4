@@ -1,9 +1,11 @@
 // Entry point: start screen → build world → run.
-import worldData from '../data/world/suedgelaende.json';
+// both maps are embedded (packed); the start screen picks one
+import erlangenData from '../data/world/suedgelaende.json';
+import nuernbergData from '../data/world/nuernberg.json';
 import { unpackWorld } from './core/unpack.js';
 import { Game } from './game.js';
 import { UI } from './ui/ui.js';
-import { settings } from './core/settings.js';
+import { settings, setSetting } from './core/settings.js';
 import { t } from './core/i18n.js';
 import { setupSpawn } from './world/places.js';
 import { installSystems } from './systems.js';
@@ -14,10 +16,16 @@ let ui = null, world = null;
 let params = null;
 try { params = new URLSearchParams(location.search); } catch (e) { /* file:// */ }
 
+const REGION_DATA = { suedgelaende: erlangenData, nuernberg: nuernbergData };
+
 async function boot() {
-  world = await unpackWorld(worldData);
-  ui = new UI(app, world);
-  if (!(params && params.has('autostart'))) await ui.showStart();
+  ui = new UI(app, null);
+  let region = (params && params.get('region')) || settings.region;
+  if (!REGION_DATA[region]) region = 'suedgelaende';
+  if (!(params && params.has('autostart'))) region = await ui.showStart(region);
+  setSetting('region', region);
+  world = await unpackWorld(REGION_DATA[region]);
+  ui.world = world;
   ui.showLoading(t('loading'));
   const frame = () => new Promise(r => setTimeout(r, 16));
   // load timing: work per step, excluding the waits for the progress bar to paint

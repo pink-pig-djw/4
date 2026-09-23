@@ -117,7 +117,7 @@ export function buildDetails(world, mats, opts = {}) {
 
   // ---- dormers on the pitched roofs of baroque houses ----
   each((b, idx) => {
-    if (skip.has(idx) || b.sm || (b.st !== 'baroque' && b.st !== 'ashlar') || b.rs === 'flat' || b.mh > 0.1) return;
+    if (skip.has(idx) || b.sm || (b.st !== 'baroque' && b.st !== 'ashlar' && !b.dm) || b.rs === 'flat' || b.mh > 0.1) return;
     if (b.p.length < 4 || b.p.length > 6) return;
     const r = obb(b.p);
     if (polyArea(b.p) / (4 * r.hw * r.hd) < 0.86) return;

@@ -546,17 +546,20 @@ export class Crowd {
     const tags = [...(q.tags || ['any'])];
     if (q.role === 'mensa') tags.push('mensastaff');
     // where: focus area (Südgelände / Tennenlohe / Altstadt) and the Schlossgarten
+    // (Nürnberg: region tag only — its old town is not Erlangen's Altstadt)
+    const reg = g.world.meta.region;
     let area = null;
-    for (const f of g.world.meta.focus || []) { const [x0, z0, x1, z1] = f.b; if (q.x >= x0 && q.x <= x1 && q.z >= z0 && q.z <= z1) { area = f.n.toLowerCase(); break; } }
+    if (reg === 'nuernberg') tags.push('nuernberg');
+    else for (const f of g.world.meta.focus || []) { const [x0, z0, x1, z1] = f.b; if (q.x >= x0 && q.x <= x1 && q.z >= z0 && q.z <= z1) { area = f.n.toLowerCase(); break; } }
     if (area) tags.push(area);
     if ((g.world.parks || []).some(k => k.n.startsWith('Schlossgarten') && pointInPoly(q.x, q.z, k.p))) tags.push('schlossgarten');
-    if (q.role === 'staff') tags.push(area === 'altstadt' ? 'staffalt' : 'staff');
+    if (q.role === 'staff') tags.push(reg === 'nuernberg' ? 'staffnbg' : area === 'altstadt' ? 'staffalt' : 'staff');
     const w = g.weather.name;
     if (w === 'rain') tags.push('rain'); if (w === 'night') tags.push('night'); if (w === 'autumn') tags.push('autumn');
     const L = g.layout;
     if (L.racks.some(rk => Math.abs(rk.x - q.x) < 25 && Math.abs(rk.z - q.z) < 25)) tags.push('bike');
     if (L.stops.some(s => Math.abs(s.x - q.x) < 20 && Math.abs(s.z - q.z) < 20)) tags.push('bus');
-    if (g.indoor) { const pr = g.indoor.plan.program; tags.push(pr === 'mensa' ? 'mensa' : pr === 'lecture' ? 'lecture' : pr === 'math' ? 'math' : pr === 'aula' ? 'aula' : 'rrze', 'study'); }
+    if (g.indoor) { const pr = g.indoor.plan.program; tags.push(pr === 'mensa' ? 'mensa' : pr === 'lecture' ? 'lecture' : pr === 'math' ? 'math' : pr === 'aula' ? 'aula' : pr === 'wiso' ? 'wiso' : 'rrze', 'study'); }
     if (!q.dialogue) {
       q.dialogue = pickDialogue(tags, rng(q.id * 31 + 7), this.used);
       this.used.add(q.dialogue.id);

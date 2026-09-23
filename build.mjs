@@ -42,7 +42,7 @@ export function htmlTemplate(scriptTag) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#1b2a3a">
-<title>FAU Campus 3D · Erlangen</title>
+<title>FAU Campus 3D · Erlangen · Nürnberg</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,${icon}">
 <style>${css}</style>
 </head>

@@ -17,7 +17,10 @@ import { rng } from '../src/shared/geom.js';
 import { buildInteriorColliders, ENTERABLE, interiorTestRoutes } from '../src/world/interiors/plan.js';
 
 const quick = process.argv.includes('--quick');
-const world = JSON.parse(readFileSync('data/world/suedgelaende.json', 'utf8'));
+// usage: node tools/walk-test.mjs [region] [--quick]
+const regionId = process.argv.slice(2).find(a => !a.startsWith('--')) || 'suedgelaende';
+const world = JSON.parse(readFileSync(`data/world/${regionId}.json`, 'utf8'));
+console.log(`region ${regionId}`);
 { const T = await Terrain.fromWorld(world.terrain, inflateSync); gradeSite(world, T); setTerrain(T); }
 const t0 = Date.now();
 const layout = computeLayout(world);
@@ -65,9 +68,12 @@ console.log(`1. teleport targets: ${places.length} checked, ${placeFails} proble
 function walkTo(c, tx, tz, maxT, label) {
   let t = 0, stuckT = 0, detour = 0, detourDir = 1, attempts = 0, bestD = Infinity;
   let lastX = c.x, lastZ = c.z;
+  // a path may end at a statue or a post standing on its last node: reaching it counts
+  const gy = cw.groundHeight(tx, tz, c.y + 3);
+  const arrive = Number.isFinite(gy) && !cw.isFree(tx, tz, 0.05, gy + 0.1, gy + PLAYER.height) ? 1.4 : 0.7;
   while (t < maxT) {
     const dx = tx - c.x, dz = tz - c.z, d = Math.hypot(dx, dz);
-    if (d < 0.7) return true;
+    if (d < arrive) return true;
     c.yaw = Math.atan2(-dx, -dz);
     const inp = detour > 0 ? { fx: detourDir, fz: 0.3, run: true } : { fx: 0, fz: 1, run: true };
     c.step(H, inp); t += H;
@@ -162,11 +168,18 @@ console.log(`4. interior routes: ${stairRoutes} walked, ${stairFails} failed`);
 // Known limitations, checked by place: roads under very short bridges whose abutments stand
 // closer together than the 3 m terrain grid can carve an underpass (the deck visibly hangs low
 // over the ground there; nothing invisible blocks). Any other failure fails the test.
-const KNOWN = [
-  { kind: 'path-blocked', x: -2013, z: -2359, why: 'underpass below the A73 Frankenschnellweg (west Altstadt)' },
-  { kind: 'path-blocked', x: -2007, z: -2345, why: 'underpass below the A73 Frankenschnellweg (west Altstadt)' },
-  { kind: 'path-blocked', x: -693, z: -2593, why: 'footpath below a short footbridge (north Altstadt)' },
-];
+const KNOWN = {
+  suedgelaende: [
+    { kind: 'path-blocked', x: -2013, z: -2359, why: 'underpass below the A73 Frankenschnellweg (west Altstadt)' },
+    { kind: 'path-blocked', x: -2007, z: -2345, why: 'underpass below the A73 Frankenschnellweg (west Altstadt)' },
+    { kind: 'path-blocked', x: -693, z: -2593, why: 'footpath below a short footbridge (north Altstadt)' },
+  ],
+  nuernberg: [
+    { kind: 'path-blocked', x: 703, z: -51, why: 'riverside footpath under the edge of the Franz-Josef-Strauß-Brücke' },
+    { kind: 'path-blocked', x: 686, z: -71, why: 'riverside footpath under the edge of the Franz-Josef-Strauß-Brücke' },
+    { kind: 'path-blocked', x: 683, z: -103, why: 'footpath dropping into the town moat beside a small bridge (east Altstadt)' },
+  ],
+}[regionId] || [];
 const known = [];
 for (let i = failures.length - 1; i >= 0; i--) {
   const f = failures[i];

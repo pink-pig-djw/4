@@ -11,12 +11,34 @@ export const REGIONS = {
       { raw: 'altstadt', bbox: [49.5800, 10.9960, 49.6045, 11.0360], fetchBbox: [49.5790, 10.9945, 49.6055, 11.0375] },
     ],
     origin: [49.5770, 11.0260],
+    city: 'Erlangen',
     dem: 'dgm1',
     // full detail here; ordinary buildings in the corridors between them are built simpler
     focus: [
       { name: 'Südgelände', bbox: [49.5690, 11.0170, 49.5850, 11.0370] },
       { name: 'Tennenlohe', bbox: [49.5395, 11.0110, 49.5570, 11.0420] },
       { name: 'Altstadt', bbox: [49.5915, 10.9985, 49.6045, 11.0140] },
+    ],
+  },
+  // Nürnberg: the walled old town with FAU's Wirtschafts- und Sozialwissenschaften (Lange Gasse,
+  // Findelgasse), the Hauptbahnhof and the Kaiserburg — a separate map (≈ 20 km from Erlangen).
+  nuernberg: {
+    name: { de: 'Nürnberg · Altstadt', zh: '纽伦堡 · 老城' },
+    rects: [
+      { raw: 'nuernberg', bbox: [49.4435, 11.0600, 49.4615, 11.0930], fetchBbox: [49.4425, 11.0585, 49.4625, 11.0945] },
+    ],
+    origin: [49.4525, 11.0770],
+    city: 'Nürnberg',
+    dem: 'dgm1',
+    // the old town is built of red-brown Burgsandstein: Gothic churches, towers, the castle and
+    // the city wall (≈ 7 m high, with a roofed wall-walk); steep roofs with rows of dormers
+    stone: { palette: [0xb98a6c, 0xc09474, 0xa87a5e, 0xc7a07c, 0xb28468, 0xbf9a7a] },
+    cityWall: { h: 7, t: 1.6 },
+    dormers: true,
+    // start in front of FAU's Findelgasse 7/9 (Wirtschafts- und Sozialwissenschaften)
+    start: { at: [49.452232, 11.079376], look: [49.452218, 11.079567] },
+    focus: [
+      { name: 'Altstadt', bbox: [49.4455, 11.0630, 49.4600, 11.0890] },
     ],
   },
 };

@@ -128,7 +128,7 @@ vec3 fTv;
     // large-scale mottling (repairs, uneven weathering)
     fCol *= 0.94 + 0.12 * fVN(vec2(u, h) * 0.35 + seed);
     // splash zone and plinth
-    float plinth = st == 5 || st == 10 ? 0.5 : st == 7 || st == 6 || st == 14 || st == 15 ? 0.0 : 0.3;
+    float plinth = st == 5 || st == 10 ? 0.5 : st == 7 || st == 6 || st >= 14 ? 0.0 : 0.3;
     if (h < plinth) {
       fCol = mix(fCol, vec3(0.42, 0.41, 0.39), 0.7) * (0.9 + 0.2 * fVN(vec2(u * 3.0, h * 3.0)));
       if (h > plinth - 0.03) { fN = vec3(0.0, 0.6, 0.8); fNSet = 1.0; }
@@ -138,7 +138,7 @@ vec3 fTv;
     float streak = fHash(vec3(floor(u * 1.3), 7.0, seed));
     fCol *= 1.0 - 0.07 * streak * smoothstep(top - 5.0, top - 0.3, h);
     // metal coping at the roof edge
-    if (st != 10 && h > top - 0.14) { fCol = vec3(0.34, 0.35, 0.36); fMetal = 0.4; fRough = 0.45; if (h < top - 0.1) { fN = vec3(0.0, -0.5, 0.86); fNSet = 1.0; } }
+    if (st != 10 && st < 15 && h > top - 0.14) { fCol = vec3(0.34, 0.35, 0.36); fMetal = 0.4; fRough = 0.45; if (h < top - 0.1) { fN = vec3(0.0, -0.5, 0.86); fNSet = 1.0; } }
   } else if (inner && fy < 0.08) { fCol = vec3(0.36, 0.35, 0.34); }
 
   // ---- window layout per style: an opening rectangle in (u, floor height) ----
@@ -150,6 +150,7 @@ vec3 fTv;
   int kind = 0;
   vec3 frameCol = vec3(0.42, 0.43, 0.44);
   bool sill = false;
+  float gothArch = 0.0;
   if (st == 0) { // ribbon windows
     float m = 0.45;
     if (upper && L > 2.0 * m + 1.0) {
@@ -223,7 +224,7 @@ vec3 fTv;
       kind = 2; blindOK = 0.0; roomW = 5.4 * 3.0; roomU0 = floor(u / 16.2) * 16.2; roomD = 16.0; cellId = bay; litP = 0.9;
     }
   } else if (st == 14 || st == 15) { // baroque town house / palace (15: sandstone ashlar)
-    vec3 stone = vec3(0.78, 0.7, 0.55);                      // Burgsandstein
+    vec3 stone = st == 15 ? fCol : vec3(0.78, 0.7, 0.55);   // Burgsandstein (ashlar: the building's own stone)
     float ph = st == 15 ? 0.0 : 0.85;                      // plinth height (rusticated)
     // corner pilasters (Lisenen)
     bool pil = u < 0.55 || u > L - 0.55;
@@ -274,6 +275,26 @@ vec3 fTv;
         }
       }
     }
+  } else if (st == 16) { // Gothic church: sandstone ashlar, buttresses, tall lancet windows with tracery
+    vec3 stone = fCol;
+    float row = floor(h / 0.38), bu = u / 0.8 + mod(row, 2.0) * 0.5;
+    float jv = step(fract(h / 0.38), 0.03), ju = step(fract(bu), 0.012);
+    fCol = mix(stone, stone * (0.84 + 0.26 * fHash(vec3(floor(bu), row, seed))), 0.85);
+    fCol *= 1.0 - 0.25 * max(jv, ju) * fine2;
+    if (max(jv, ju) > 0.5 && fine > 0.5) { fN = vec3(0.0, jv > 0.5 ? -0.5 : 0.0, 0.86); fNSet = 1.0; }
+    fCol *= 0.82 + 0.18 * fVN(vec2(u * 0.25, h * 0.12) + seed);   // centuries of weathering
+    float nb = max(1.0, floor(L / 6.0)), bw = L / nb, bx = mod(u, bw);
+    bool butt = bx < 0.6 || bx > bw - 0.6;
+    if (butt && h < top - 0.8) { fCol *= 0.9; fN = vec3(bx < 0.6 ? -0.4 : 0.4, 0.0, 0.92); fNSet = 1.0; }
+    fl = 0.0; fy = h; upper = h < top - 0.5;
+    float ww = min(2.4, bw * 0.45), wy0 = max(2.4, top * 0.16), wy1 = top - max(1.2, top * 0.1);
+    if (upper && L > 3.0 && wy1 - wy0 > 2.5 && !butt) {
+      float ci = floor(u / bw);
+      hasO = true; cellId = ci; ox0 = ci * bw + (bw - ww) * 0.5; ow = ww; oy0 = wy0; oh = wy1 - wy0;
+      rdep = 0.5; fw = 0.05; mullSp = ww / 3.0; tranY = -1.0; frameCol = stone * 0.75;
+      kind = 3; blindOK = 0.0; roomW = L; roomU0 = 0.0; roomD = 20.0; litP = 0.25;
+      gothArch = 1.0;
+    }
   } else if (st == 10) { // gable end (plaster)
     fCol *= 0.97;
   } else if (st == 11) { // interior walls: plain paint with skirting
@@ -288,6 +309,8 @@ vec3 fTv;
   // ---- window: reveal, frame, blinds, glass and the room behind ----
   float wx = u - ox0, wy = fy - oy0;
   bool inO = hasO && wx >= 0.0 && wx <= ow && wy >= 0.0 && wy <= oh;
+  // lancet: above the springing line the opening is the intersection of two arcs
+  if (inO && gothArch > 0.5) { float sy = oh - ow * 0.866; if (wy > sy && (length(vec2(wx, wy - sy)) > ow || length(vec2(wx - ow, wy - sy)) > ow)) inO = false; }
   if (hasO && !inO && !inner && sill && wx > -0.05 && wx < ow + 0.05) {
     // protruding window sill with its shadow line, and rain streaks running down from its ends
     if (wy > -0.06 && wy < 0.0) { fCol = st == 5 ? vec3(0.82, 0.82, 0.8) : vec3(0.6, 0.61, 0.62); fMetal = 0.25; fRough = 0.45; fN = vec3(0.0, 0.75, 0.66); fNSet = 1.0; }

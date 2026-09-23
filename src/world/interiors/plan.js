@@ -14,6 +14,8 @@ export const ENTERABLE = [
   // Altstadt: centre wing of the Kollegienhaus (the real building houses the university's Aula;
   // the interior layout here is made up)
   { key: 'kolleg', id: 'w357362086', program: 'aula', title: { de: 'Kollegienhaus', zh: '学院楼 Kollegienhaus' } },
+  // Nürnberg: FAU Wirtschafts- und Sozialwissenschaften, Findelgasse 7/9 (interior made up)
+  { key: 'wiso', id: 'w316492480', program: 'wiso', title: { de: 'FAU WiSo · Findelgasse 7/9', zh: 'FAU 经济与社会科学 · Findelgasse' } },
 ];
 
 const SLAB = 0.3;          // floor slab thickness
@@ -189,17 +191,18 @@ class Plan {
       const dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz);
       if (len < 0.05) { this.ext.push(null); continue; }
       const nx = dz / len, nz = -dx / len; // outward
-      // party wall if another ground-level building touches this edge
-      let party = false;
+      // party wall if another ground-level building stands against most of this edge (a
+      // neighbour touching only one end leaves the facade visible)
+      let touching = 0;
       for (const f of [0.25, 0.5, 0.75]) {
         const mx = a[0] + dx * f + nx * 0.45, mz = a[1] + dz * f + nz * 0.45;
         for (const o of others) {
           if (o === this.b || o.mh > 1 || this.absorbed?.has(o)) continue;
           if (o._bb && (mx < o._bb[0] || mx > o._bb[2] || mz < o._bb[1] || mz > o._bb[3])) continue;
-          if (pointInPoly(mx, mz, o.p)) { party = true; break; }
+          if (pointInPoly(mx, mz, o.p)) { touching++; break; }
         }
-        if (party) break;
       }
+      const party = touching >= 2;
       this.ext.push({ i, a, b, len, nx, nz, party, openings: [], y0: 0, y1: this.topY, kind: 'ext' });
     }
   }
@@ -756,6 +759,10 @@ function eeiRooms(k, idx, w) {
   if (k === 1) return w >= 9 ? 'cip' : w >= 7 ? 'labor' : idx % 4 === 0 ? 'sekretariat' : 'buero';
   return w >= 9 ? 'labor' : w >= 7 ? (idx % 2 ? 'besprechung' : 'seminar') : idx % 5 === 0 ? 'kueche' : 'buero';
 }
+function wisoRooms(k, idx, w) {
+  if (k === 0) return w >= 9 ? 'seminar' : w >= 7 ? 'cip' : idx % 3 === 0 ? 'lernraum' : 'seminar';
+  return w >= 9 ? 'seminar' : w >= 7 ? (idx % 2 ? 'besprechung' : 'bibliothek') : idx % 4 === 0 ? 'sekretariat' : 'buero';
+}
 function mathRooms(k, idx, w) {
   if (k === 0) return w >= 9 ? 'seminar' : w >= 7 ? 'uebung' : idx % 3 === 0 ? 'lernraum' : 'seminar';
   if (k === 1) return w >= 9 ? 'bibliothek' : w >= 7 ? 'seminar' : 'buero';
@@ -796,6 +803,7 @@ export function buildPlans(world) {
     if (spec.program === 'math') ringProgram(P, { topLevel: Math.min(P.levels - 1, 4), roomKind: mathRooms, server: false });
     else if (spec.program === 'rrze') ringProgram(P, { topLevel: Math.min(P.levels - 1, 1), roomKind: rrzeRooms, server: true });
     else if (spec.program === 'eei') ringProgram(P, { topLevel: Math.min(P.levels - 1, 4), roomKind: eeiRooms, server: false });
+    else if (spec.program === 'wiso') ringProgram(P, { topLevel: Math.min(P.levels - 1, 4), roomKind: wisoRooms, server: false });
     else if (spec.program === 'mensa') mensaProgram(P);
     else if (spec.program === 'lecture') lectureProgram(P);
     else if (spec.program === 'aula') aulaProgram(P);
