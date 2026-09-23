@@ -38,6 +38,7 @@ function standGeo() {
   s.tube([-0.38, 0.72, 0], [-0.3, 0.8, 0], 0.024, STEEL).tube([0.38, 0.72, 0], [0.3, 0.8, 0], 0.024, STEEL).tube([-0.3, 0.8, 0], [0.3, 0.8, 0], 0.024, STEEL);
   return s.build();
 }
+export function bikeGeometry() { return bikeGeo(); }
 function bikeGeo() {
   const s = new Shape();
   const BB = [0.0, 0.3, 0], ST = [-0.13, 0.84, 0], HT = [0.4, 0.86, 0], HB = [0.45, 0.66, 0], RA = [-0.52, 0.34, 0], FA = [0.53, 0.34, 0];

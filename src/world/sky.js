@@ -12,7 +12,7 @@ void main() {
 
 const SKY_FRAG = /* glsl */`
 uniform vec3 uZenith, uHorizon, uGround, uSunDir, uSunColor, uCloudColor, uCloudShade;
-uniform float uCloud, uTime, uNight, uSunSize;
+uniform float uCloud, uTime, uNight, uSunSize, uEnv;
 varying vec3 vDir;
 float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
@@ -29,7 +29,7 @@ void main() {
   // clouds on a virtual plane
   if (y > 0.0) {
     vec2 uv = d.xz / (y + 0.12) * 1.6 + vec2(uTime * 0.004, uTime * 0.0017);
-    float c = fbm(uv);
+    float c = uEnv > 0.5 ? mix(fbm(uv * 0.35), 0.5, 0.35) : fbm(uv);
     float cov = smoothstep(1.0 - uCloud - 0.05, 1.0 - uCloud * 0.55 + 0.25, c);
     float shade = fbm(uv * 1.7 + 3.0);
     vec3 cc = mix(uCloudShade, uCloudColor, shade);
@@ -37,10 +37,10 @@ void main() {
     col = mix(col, cc, cov * smoothstep(0.0, 0.12, y));
   }
   // stars at night
-  if (uNight > 0.01 && y > 0.05) {
+  if (uNight > 0.01 && y > 0.12 && uEnv < 0.5) {
     vec2 g = floor(d.xz / (y + 0.3) * 260.0);
-    float s = step(0.9975, h2(g)) * (1.0 - uCloud);
-    col += vec3(s) * uNight * 0.9;
+    float s = step(0.9993, h2(g)) * (1.0 - uCloud) * smoothstep(0.12, 0.5, y);
+    col += vec3(s) * uNight * 0.7;
   }
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
@@ -55,12 +55,12 @@ export class Sky {
       uZenith: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uGround: { value: new THREE.Color() },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color() },
       uCloudColor: { value: new THREE.Color() }, uCloudShade: { value: new THREE.Color() },
-      uCloud: { value: 0.5 }, uTime: { value: 0 }, uNight: { value: 0 }, uSunSize: { value: 0.0006 },
+      uCloud: { value: 0.5 }, uTime: { value: 0 }, uNight: { value: 0 }, uSunSize: { value: 0.0006 }, uEnv: { value: 0 },
     };
     const mat = new THREE.ShaderMaterial({ vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, fog: false });
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(1000, 32, 16), mat);
     this.dome.frustumCulled = false;
-    this.dome.renderOrder = -10;
+    this.dome.renderOrder = 100; // last: only pixels not covered by geometry get the sky shader
     scene.add(this.dome);
 
     this.sun = new THREE.DirectionalLight(0xffffff, 2);
@@ -111,7 +111,10 @@ export class Sky {
 
   updateEnv() {
     if (this.envRT) this.envRT.dispose();
-    this.envRT = this.pmrem.fromScene(this.envScene, 0, 0.1, 200);
+    // reflections use a smooth sky (no stars, soft clouds) to avoid sparkling window glass
+    this.uniforms.uEnv.value = 1;
+    this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
+    this.uniforms.uEnv.value = 0;
     this.scene.environment = this.envRT.texture;
     this.scene.environmentIntensity = 0.9;
   }

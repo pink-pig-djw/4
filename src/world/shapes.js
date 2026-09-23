@@ -34,7 +34,7 @@ export class Shape {
     return this._add(g, color, tint, emissive);
   }
   // cylinder between two points
-  tube(p0, p1, r, color, tint = 0, seg = 6, emissive = 0) {
+  tube(p0, p1, r, color, tint = 0, seg = 5, emissive = 0) {
     const a = new THREE.Vector3(...p0), b = new THREE.Vector3(...p1);
     const d = b.clone().sub(a), L = d.length();
     const g = new THREE.CylinderGeometry(r, r, L, seg, 1);
@@ -45,7 +45,7 @@ export class Shape {
     return this._add(g, color, tint, emissive);
   }
   torus(R, r, x, y, z, color, rotAxis = 'y', tint = 0) {
-    const g = new THREE.TorusGeometry(R, r, 4, 14);
+    const g = new THREE.TorusGeometry(R, r, 3, 12);
     if (rotAxis === 'y') { /* ring in xy plane */ } else if (rotAxis === 'x') g.rotateY(Math.PI / 2);
     g.translate(x, y, z);
     return this._add(g, color, tint);

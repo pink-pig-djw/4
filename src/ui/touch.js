@@ -22,7 +22,7 @@ export class TouchControls {
     const R = 56;
     left.addEventListener('pointerdown', e => {
       if (joyId !== null) return;
-      joyId = e.pointerId; left.setPointerCapture(e.pointerId);
+      joyId = e.pointerId; try { left.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or lost pointer */ }
       cx = e.clientX; cy = e.clientY;
       this.joy.style.left = cx + 'px'; this.joy.style.top = cy + 'px';
       this.joy.classList.remove('hidden');
@@ -44,7 +44,7 @@ export class TouchControls {
     left.addEventListener('pointerup', endJoy); left.addEventListener('pointercancel', endJoy);
 
     let lookId = null, lx = 0, ly = 0;
-    right.addEventListener('pointerdown', e => { if (lookId !== null) return; lookId = e.pointerId; right.setPointerCapture(e.pointerId); lx = e.clientX; ly = e.clientY; });
+    right.addEventListener('pointerdown', e => { if (lookId !== null) return; lookId = e.pointerId; try { right.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } lx = e.clientX; ly = e.clientY; });
     right.addEventListener('pointermove', e => {
       if (e.pointerId !== lookId) return;
       input.addLook((e.clientX - lx) * 1.6, (e.clientY - ly) * 1.6);

@@ -92,18 +92,25 @@ export class Minimap {
     const n = document.createElement('div'); n.className = 'mm-north'; n.textContent = 'N'; this.el.appendChild(n);
     this.north = n;
     parent.appendChild(this.el);
-    // pre-render the whole map once
-    const [x0, z0, x1, z1] = world.meta.bounds;
+    // map is pre-rendered lazily in small tiles (robust on devices with canvas size limits)
+    this.renderer = renderer;
     this.ppm = 1.25;
-    const W = Math.ceil((x1 - x0 + 200) * this.ppm), H = Math.ceil((z1 - z0 + 200) * this.ppm);
-    this.ox = x0 - 100; this.oz = z0 - 100;
-    this.base = document.createElement('canvas');
-    this.base.width = W; this.base.height = H;
-    const bctx = this.base.getContext('2d');
-    renderer.draw(bctx, W, H, this.ox + W / this.ppm / 2, this.oz + H / this.ppm / 2, this.ppm, 0);
+    this.tilePx = 512;
+    this.tiles = new Map();
     this.size = 0;
     this.scale = 1.6; // screen px per metre
-    this.markers = []; // {x,z,color}
+  }
+  _tile(i, j) {
+    const key = i + ',' + j;
+    let t = this.tiles.get(key);
+    if (t) return t;
+    t = document.createElement('canvas');
+    t.width = t.height = this.tilePx;
+    const m = this.tilePx / this.ppm; // metres per tile
+    this.renderer.draw(t.getContext('2d'), this.tilePx, this.tilePx, (i + 0.5) * m, (j + 0.5) * m, this.ppm, 0);
+    this.tiles.set(key, t);
+    if (this.tiles.size > 64) this.tiles.delete(this.tiles.keys().next().value);
+    return t;
   }
   resize() {
     const r = this.el.getBoundingClientRect();
@@ -122,9 +129,12 @@ export class Minimap {
     ctx.translate(S / 2, S / 2);
     ctx.rotate(yaw); // heading up
     ctx.scale(s / this.ppm, s / this.ppm);
-    ctx.translate(-(px - this.ox) * this.ppm, -(pz - this.oz) * this.ppm);
+    ctx.translate(-px * this.ppm, -pz * this.ppm);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.base, 0, 0);
+    const m = this.tilePx / this.ppm, R = (S / s) * 0.75 + 2;
+    for (let i = Math.floor((px - R) / m); i <= Math.floor((px + R) / m); i++)
+      for (let j = Math.floor((pz - R) / m); j <= Math.floor((pz + R) / m); j++)
+        ctx.drawImage(this._tile(i, j), i * this.tilePx, j * this.tilePx);
     ctx.restore();
     // npc dots
     if (npcs) {
@@ -236,7 +246,7 @@ export class BigMap {
     const c = this.canvas;
     let drag = null, pinch = null, moved = 0;
     const pts = new Map();
-    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); moved = 0; if (pts.size === 1) drag = [e.clientX, e.clientY]; else if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: this.view.s }; drag = null; } });
+    c.addEventListener('pointerdown', e => { try { c.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } pts.set(e.pointerId, [e.clientX, e.clientY]); moved = 0; if (pts.size === 1) drag = [e.clientX, e.clientY]; else if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: this.view.s }; drag = null; } });
     c.addEventListener('pointermove', e => {
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, [e.clientX, e.clientY]);

@@ -14,7 +14,7 @@ export const FURNITURE = {
   chair: () => {
     const s = new Shape();
     s.box(0.42, 0.04, 0.42, 0, 0.46, 0, '#2d4f7c', 1); s.box(0.04, 0.38, 0.4, -0.2, 0.68, 0, '#2d4f7c', 1);
-    for (const x of [-0.17, 0.17]) for (const z of [-0.17, 0.17]) s.cyl(0.013, 0.013, 0.46, x, 0.23, z, STEEL, 4);
+    s.box(0.34, 0.44, 0.04, 0, 0.22, 0, STEEL);
     return s.build();
   },
   desk: () => {
@@ -30,11 +30,11 @@ export const FURNITURE = {
   },
   // Mensa table: 1.6 m long along +x (facing), 0.8 m wide, four chairs
   mtable: () => {
-    const s = new Shape(); s.box(1.6, 0.04, 0.8, 0, 0.74, 0, '#e9e4d8'); s.cyl(0.05, 0.05, 0.72, -0.5, 0.36, 0, GREY, 6); s.cyl(0.05, 0.05, 0.72, 0.5, 0.36, 0, GREY, 6);
-    s.box(1.3, 0.04, 0.3, 0, 0.05, 0, GREY);
+    const s = new Shape(); s.box(1.6, 0.04, 0.8, 0, 0.74, 0, '#e9e4d8');
+    s.box(0.08, 0.72, 0.08, -0.5, 0.36, 0, GREY).box(0.08, 0.72, 0.08, 0.5, 0.36, 0, GREY);
     for (const x of [-0.42, 0.42]) for (const z of [-0.62, 0.62]) {
       s.box(0.42, 0.04, 0.4, x, 0.46, z, '#c0582f'); s.box(0.42, 0.36, 0.04, x, 0.66, z + Math.sign(z) * 0.2, '#c0582f');
-      for (const dx of [-0.17, 0.17]) s.cyl(0.012, 0.012, 0.46, x + dx, 0.23, z, STEEL, 4);
+      s.box(0.04, 0.44, 0.04, x, 0.22, z, STEEL);
     }
     s.box(0.34, 0.02, 0.26, -0.4, 0.77, -0.18, '#d8d2c2'); s.box(0.2, 0.03, 0.2, -0.4, 0.8, -0.18, '#c98a3a');
     return s.build();

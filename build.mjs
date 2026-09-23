@@ -21,6 +21,7 @@ export function esbuildOptions(dev = false) {
 
 export function htmlTemplate(scriptTag) {
   const css = readFileSync('src/ui/style.css', 'utf8');
+  const icon = readFileSync('desktop/icon.png').toString('base64');
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -28,6 +29,7 @@ export function htmlTemplate(scriptTag) {
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#1b2a3a">
 <title>FAU Campus 3D · Südgelände</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,${icon}">
 <style>${css}</style>
 </head>
 <body>

@@ -38,10 +38,10 @@ export const PRESETS = {
   },
   night: {
     sunEl: 38, sunAz: 150, sunI: 0.1, sunColor: '#a8b8ff',
-    hemiSky: '#2b3752', hemiGround: '#17171b', hemiI: 0.4,
-    zenith: '#050a18', horizon: '#1f2a3c', groundSky: '#0b0d12',
+    hemiSky: '#34435f', hemiGround: '#1d1d22', hemiI: 0.75,
+    zenith: '#070d1e', horizon: '#26334a', groundSky: '#0d1016',
     cloud: 0.35, cloudColor: '#2c3342', cloudShade: '#141924',
-    fog: '#161d2a', fogNear: 20, fogFar: 460, exposure: 1.2,
+    fog: '#1a2230', fogNear: 20, fogFar: 460, exposure: 1.4,
     night: 1, wet: 0, rain: 0, leaves: 0.7, shadow: 0.2, birds: 0, crowd: 0.3,
   },
 };

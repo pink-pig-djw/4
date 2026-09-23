@@ -21,7 +21,10 @@ async function boot() {
   await game.init(async (p) => { ui.setProgress(p); await frame(); });
   await installSystems(game, async (p) => { ui.setProgress(0.55 + p * 0.45); await frame(); });
   setupSpawn(game);
+  const w = params && params.get('w');
+  if (w && ['autumn', 'sunny', 'overcast', 'rain', 'night'].includes(w)) game.weather.set(w, true);
   ui.attach(game);
+  if (ui.startedByClick) game.audio?.start();
   ui.hideLoading();
   game.start();
   if (typeof window !== 'undefined') window.__game = game;

@@ -647,9 +647,28 @@ function lectureProgram(P) {
   const lb = FG(0.25, (fs ? ml[1] : ml[0]) + 2.2);
   P.label(lb[0], lb[1], 0, 'Hörsaalgebäude', '报告厅楼', fd[0], fd[1], 2.7);
   // 1.OG slab only above the foyer (halls are double height)
-  const fpoly = [FG(0, -width / 2), FG(foyer, -width / 2), FG(foyer, width / 2), FG(0, width / 2)].map(q => P.W(q[0], q[1]));
+  // foyer slab = inner outline clipped to the foyer band (f <= foyer)
+  const fdW = [P.F.ux * fd[0] + P.F.vx * fd[1], P.F.uz * fd[0] + P.F.vz * fd[1]];
+  const front = P.W(...FG(0, 0));
+  const fpoly = clipHalf(P.inner, fdW[0], fdW[1], fdW[0] * front[0] + fdW[1] * front[1] + foyer);
   P.floors.push({ poly: P.inner, y: 0, thick: SLAB, kind: 'floor', level: 0, holes: [] });
   P.floors.push({ poly: fpoly, y: P.Y(1), thick: SLAB, kind: 'ceilingOnly', level: 1, holes: [], clipTo: P.inner });
+}
+
+// Keep the part of a polygon where n·p <= c (Sutherland–Hodgman, one plane)
+function clipHalf(poly, nx, nz, c) {
+  const out = [];
+  const inside = p => p[0] * nx + p[1] * nz <= c;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const ia = inside(a), ib = inside(b);
+    if (ia) out.push(a);
+    if (ia !== ib) {
+      const da = a[0] * nx + a[1] * nz - c, db = b[0] * nx + b[1] * nz - c, t = da / (da - db);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    }
+  }
+  return out;
 }
 
 function rrzeRooms(k, idx, w) {

@@ -104,6 +104,7 @@ export function buildGround(world, mats) {
     }
     const m = new THREE.Mesh(buf.geometry(), mats.ground);
     m.receiveShadow = true; m.name = 'base';
+    m.renderOrder = 50; // drawn after everything opaque → hidden pixels are skipped by the depth test
     group.add(m);
   }
   // areas
@@ -118,7 +119,7 @@ export function buildGround(world, mats) {
   }
   for (const [mat, b] of areaBufs) {
     const m = new THREE.Mesh(b.geometry(), mat);
-    m.receiveShadow = true; group.add(m);
+    m.receiveShadow = true; m.renderOrder = 45 - (mat.polygonOffsetFactor ? -mat.polygonOffsetFactor : 0); group.add(m);
   }
   // waterways
   {
@@ -196,7 +197,8 @@ export function buildGround(world, mats) {
   for (const [mat, b] of roadBufs) {
     if (!b.pos.length) continue;
     const m = new THREE.Mesh(b.geometry(), mat);
-    m.receiveShadow = true; group.add(m);
+    // top-most ground layers first so the layers beneath are rejected early
+    m.receiveShadow = true; m.renderOrder = 40 - (mat.polygonOffsetFactor ? -mat.polygonOffsetFactor : 0); group.add(m);
   }
   return group;
 }

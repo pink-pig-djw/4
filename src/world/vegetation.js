@@ -150,7 +150,7 @@ export class Vegetation {
   }
 
   setQuality(q) {
-    this.nearDist = q === 'high' ? 220 : q === 'medium' ? 140 : 70;
+    this.nearDist = q === 'high' ? 200 : q === 'medium' ? 120 : 65;
   }
 
   _buildHedges() {

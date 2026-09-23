@@ -30,7 +30,8 @@ float fGlass = 0.0; vec3 fEmis = vec3(0.0); float fRough = 0.88; float fMetal = 
   float u = vF.x, h = vF.y, L = vF.z, top = vF.w;
   bool inner = vS.x > 19.5;            // interior face of an exterior wall
   int st = int(vS.x - (inner ? 20.0 : 0.0) + 0.5);
-  float lh = max(vS.y, 2.0), seed = vS.z, levels = vS.w;
+  // seed is interpolated per pixel; round it so the hash is identical across a whole wall
+  float lh = max(vS.y, 2.0), seed = floor(vS.z * 8.0 + 0.5), levels = floor(vS.w + 0.5);
   float fl = floor(h / lh), fy = h - fl * lh;
   float aa = max(fwidth(u), fwidth(h));               // metres per pixel → fade fine detail
   float fine = 1.0 - smoothstep(0.012, 0.05, aa);
@@ -136,6 +137,8 @@ float fGlass = 0.0; vec3 fEmis = vec3(0.0); float fRough = 0.88; float fMetal = 
   }
 
   if (win > 0.5) {
+    // thin frames/mullions alias at distance: fade them out when a pixel covers more than a few cm
+    frame *= 1.0 - smoothstep(0.025, 0.07, aa);
     float hsh = fHash(vec3(cellId, fl, seed + 11.0));
     vec3 frameCol = st == 5 ? vec3(0.92) : st == 2 ? vec3(0.16) : st == 9 ? vec3(0.3, 0.3, 0.32) : vec3(0.42, 0.43, 0.44);
     // venetian blinds / roller shutters partly lowered
@@ -154,7 +157,7 @@ float fGlass = 0.0; vec3 fEmis = vec3(0.0); float fRough = 0.88; float fMetal = 
       fRough = 0.55; fMetal = st == 5 ? 0.0 : 0.3;
       fEmis = warm * lit * 0.35;
     } else {
-      fCol = glassCol; fGlass = 1.0; fRough = 0.06; fMetal = 0.55;
+      fCol = glassCol; fGlass = 1.0; fRough = 0.12; fMetal = 0.5;
       fEmis = warm * lit * 1.1;
     }
   }

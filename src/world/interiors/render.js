@@ -88,8 +88,9 @@ export class Interiors {
     this.floorMat.map.repeat.set(0.5, 0.5);
     this.ceilMat = new THREE.MeshStandardMaterial({ color: 0xf1efe9, roughness: 0.95, vertexColors: true, emissive: 0x9a978f, emissiveIntensity: 0.55 });
     this.roofMat = mats.roofFlat;
-    this.glassMat = new THREE.MeshStandardMaterial({ color: 0x9fb4bf, transparent: true, opacity: 0.22, roughness: 0.04, metalness: 0.4, depthWrite: false, side: THREE.DoubleSide });
+    this.glassMat = new THREE.MeshStandardMaterial({ color: 0x6f8795, transparent: true, opacity: 0.45, roughness: 0.08, metalness: 0.45, depthWrite: false, side: THREE.DoubleSide });
     this.propMat = propMaterial(globalUniforms, { roughness: 0.65 });
+    this.wallMat = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.doors = [];
     for (const P of plans) this._buildPlan(P);
     this._buildFurniture();
@@ -212,7 +213,7 @@ export class Interiors {
         }
       }
     }
-    if (parts.pos.length) { const pm = new THREE.Mesh(parts.geometry(), this.game.mats.facade); pm.receiveShadow = true; g.add(pm); }
+    if (parts.pos.length) { const pm = new THREE.Mesh(parts.geometry(), this.wallMat); pm.receiveShadow = true; g.add(pm); }
 
     // ---- stairs ----
     for (const r of P.ramps) {
@@ -251,7 +252,8 @@ export class Interiors {
     const em = new THREE.Mesh(pShape.build(), this.propMat); em.castShadow = true; em.receiveShadow = true; g.add(em);
     // distance culling for the whole interior
     const cx = P.F.cx, cz = P.F.cz, rad = Math.hypot(P.F.hw, P.F.hd);
-    g.userData.cull = { x: cx, z: cz, r: rad, maxDist: 260, castDist: 120, cast: true };
+    g.userData.cull = { x: cx, z: cz, r: rad, maxDist: 150, castDist: 120, cast: true, lod: () => this.planVisible(P) };
+    P.group = g;
     this.group.add(g);
   }
 
@@ -263,21 +265,23 @@ export class Interiors {
       const f = FURNITURE[type];
       if (!f) continue;
       const geo = f();
-      chunkedInstances(this.group, geo, this.propMat, list, (it, p, s, c) => {
+      const meshes = chunkedInstances(this.group, geo, this.propMat, list, (it, p, s, c) => {
         p.set(it.x, it.y ?? 0, it.z);
         if (type === 'seatrow' || type === 'bigboard' || type === 'screen') s.set(1, 1, it.len ?? 1);
         if (type === 'column') s.set(1, it.h ?? 3.4, 1);
         if (type === 'chair') c.set(['#2d4f7c', '#3a5f3a', '#7c2d2d', '#4a4a52'][Math.floor(Math.abs(it.x * 7.3 + it.z * 3.1)) % 4]);
         return { rot: -it.yaw };
-      }, { chunk: 64, maxDist: 110, castDist: 30, color: type === 'chair' });
+      }, { chunk: 64, maxDist: 70, castDist: 30, color: type === 'chair' });
+      for (const m of meshes) m.userData.cull.lod = () => this.furnitureVisible(m.userData.cull);
     }
     // ceiling lights (emissive panels)
     const lights = this.plans.flatMap(P => P.lights);
-    chunkedInstances(this.group, FURNITURE.light(), this.propMat, lights, (l, p, s) => { p.set(l.x, l.y, l.z); s.set(l.w, 1, l.d); return { rot: -l.yaw }; }, { chunk: 64, maxDist: 160, cast: false });
+    const lm = chunkedInstances(this.group, FURNITURE.light(), this.propMat, lights, (l, p, s) => { p.set(l.x, l.y, l.z); s.set(l.w, 1, l.d); return { rot: -l.yaw }; }, { chunk: 64, maxDist: 110, cast: false });
+    for (const m of lm) m.userData.cull.lod = () => this.furnitureVisible(m.userData.cull);
     // sliding entrance doors (animated)
     this.doorMeshes = [];
     const leafGeo = new THREE.BoxGeometry(1, 1, 1);
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x9fb4bf, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.5, depthWrite: false });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x7f96a3, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.3, depthWrite: false });
     for (const d of this.doors) {
       const half = d.w / 2;
       const leaves = [];
@@ -332,6 +336,22 @@ export class Interiors {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
     const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: atlas.texture, roughness: 0.5 }));
     this.group.add(m);
+  }
+
+  // Inside a building: draw only that building (+ directly connected ones). Outside: only nearby ones.
+  planVisible(P) {
+    const cur = this.game.indoor && this.game.indoor.plan;
+    if (cur) return P === cur || (cur.links || []).some(l => l.to === P.key);
+    const p = this.game.player;
+    return Math.hypot(P.F.cx - p.x, P.F.cz - p.z) - Math.hypot(P.F.hw, P.F.hd) < 90;
+  }
+  furnitureVisible(u) {
+    const cur = this.game.indoor && this.game.indoor.plan;
+    const inside = P => Math.abs(u.x - P.F.cx) < P.F.hw + P.F.hd + u.r && Math.abs(u.z - P.F.cz) < P.F.hw + P.F.hd + u.r;
+    if (cur) return inside(cur) || (cur.links || []).some(l => { const Q = this.plans.find(q => q.key === l.to); return Q && inside(Q); });
+    // outdoors: furniture is only glimpsed through windows – keep it to the nearest few metres
+    const p = this.game.player;
+    return Math.hypot(u.x - p.x, u.z - p.z) - u.r < 30;
   }
 
   update(dt, game) {

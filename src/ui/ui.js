@@ -3,6 +3,7 @@ import { settings, setSetting } from '../core/settings.js';
 import { t, toggleLang, onLangChange, PLACE_ZH } from '../core/i18n.js';
 import { MapRenderer, Minimap, BigMap, esc } from './map.js';
 import { TouchControls } from './touch.js';
+import { DialogueUI } from './dialogue.js';
 import { teleportTo } from '../world/places.js';
 import { pointInPoly, distSegSq } from '../shared/geom.js';
 
@@ -55,7 +56,7 @@ export class UI {
         el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { setSetting('quality', b.dataset.q); render(); });
         el.querySelector('.go').onclick = () => {
           if (this.isTouch) this.requestFullscreen();
-          this.audioUnlock?.();
+          this.startedByClick = true;
           el.remove(); resolve();
         };
       };
@@ -143,6 +144,13 @@ export class UI {
       this.updateLockHint();
     });
     if (this.isTouch) this.touch = new TouchControls(this.root, inp, (a) => this.action(a));
+    // conversations
+    this.dialogue = new DialogueUI(this.root, this);
+    game.onInteract = () => this.tryTalk();
+    inp.on('interact', () => this.action('interact'));
+    for (let k = 1; k <= 9; k++) inp.on('choice' + k, () => { if (this.dialogue.isOpen) this.dialogue.choose(k - 1); });
+    this.onDialogueEscape = () => this.dialogue.close();
+    game.npcDots = () => game.crowd ? game.crowd.dots() : null;
     game.updaters.push({ update: (dt) => this.update(dt) });
     this.locTimer = 0;
     this.refreshTexts();
@@ -157,11 +165,14 @@ export class UI {
     this.suppressUnlockMenu = true;
     this.game.input.exitLock();
     this.hud.classList.add('dim');
+    this.touch?.setVisible(false);
+    this.updateLockHint();
   }
   resumeFromOverlay() {
     if (this.overlayOpen()) return;
     this.game.input.enabled = true;
     this.hud.classList.remove('dim');
+    this.touch?.setVisible(true);
     this.updateLockHint();
   }
 
@@ -185,7 +196,7 @@ export class UI {
       this.weatherPop.classList.toggle('hidden');
       this.renderWeatherPop();
     } else if (a === 'interact') {
-      g.input.interactQueued = true;
+      if (this.dialogue?.isOpen) { this.dialogue.choose(0); return; }
       g.onInteract?.();
     } else if (a === 'fullscreen') {
       this.requestFullscreen();
@@ -301,9 +312,31 @@ export class UI {
     this.floorInd.textContent = text;
   }
 
+  tryTalk() {
+    const g = this.game, c = g.crowd;
+    if (!c || !c.target || this.dialogue.isOpen || this.overlayOpen()) return;
+    const q = c.target;
+    const id = c.identity(q), dlg = c.dialogueFor(q);
+    q.talk = true;
+    this.dialogueOpen = true;
+    this.pauseForOverlay();
+    this.setPrompt(null);
+    g.audio?.ui('talk');
+    this.dialogue.open(q, id, dlg, () => {
+      q.talk = false;
+      this.dialogueOpen = false;
+      this.resumeFromOverlay();
+      if (!this.isTouch) { try { const pr = g.renderer.domElement.requestPointerLock(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) { /* needs a gesture */ } }
+    });
+  }
+
   update(dt) {
     const g = this.game, p = g.player;
-    this.mmTimer = (this.mmTimer || 0) + dt;
+    // talk prompt
+    const tgt = g.crowd && g.crowd.target;
+    if (tgt && !this.overlayOpen()) this.setPrompt(`${t('talk')} · ${g.crowd.identity(tgt).name}`);
+    else this.setPrompt(null);
+    this.mmTimer = (this.mmTimer ?? 1) + dt; // draw on the very first frame too
     if (this.mmTimer > 1 / 30) {
       this.mmTimer = 0;
       this.minimap.draw(p.x, p.z, p.yaw, g.npcDots ? g.npcDots() : null);

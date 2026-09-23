@@ -1,7 +1,7 @@
 // Builds merged building meshes (walls with procedural facades + roofs), chunked for culling.
 import * as THREE from 'three';
 import { STYLE_ID } from './materials.js';
-import { obb, area as polyArea, centroid, labelPoint } from '../shared/geom.js';
+import { obb, area as polyArea, centroid, labelPoint, pointInPoly, polyBounds } from '../shared/geom.js';
 
 const CHUNK = 220;
 
@@ -175,6 +175,38 @@ export function buildBuildings(world, mats, opts = {}) {
     if (!c) { c = { walls: new WallBuf(), roofFlat: new RoofBuf(), roofTile: new RoofBuf() }; chunks.set(key, c); }
     return c;
   };
+  // OSM often has several parts sharing a wall (outline + parts, stacked parts). Drawing both makes
+  // the facades z-fight, so for every wall we find where another part already covers it and only
+  // draw what is really visible.
+  const B = world.buildings;
+  const bbs = B.map(b => polyBounds(b.p));
+  const G = 30, grid = new Map();
+  B.forEach((b, i) => {
+    if (skip.has(i) || b.k === 'roof') return;
+    const [x0, z0, x1, z1] = bbs[i];
+    for (let gx = Math.floor(x0 / G); gx <= Math.floor(x1 / G); gx++) for (let gz = Math.floor(z0 / G); gz <= Math.floor(z1 / G); gz++) {
+      const k = gx * 100003 + gz; let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(i);
+    }
+  });
+  const inside = (j, x, z) => { const bb = bbs[j]; return x >= bb[0] && x <= bb[2] && z >= bb[1] && z <= bb[3] && pointInPoly(x, z, B[j].p); };
+  // visible bottom of wall of building i at point (x,z) with outward normal n
+  function visibleBottom(i, bottom, top, x, z, nx, nz) {
+    const cand = grid.get(Math.floor(x / G) * 100003 + Math.floor(z / G));
+    let vb = bottom;
+    if (!cand) return vb;
+    const b = B[i];
+    const ix = x - nx * 0.12, iz = z - nz * 0.12, ox = x + nx * 0.12, oz = z + nz * 0.12;
+    for (const j of cand) {
+      if (j === i) continue;
+      const o = B[j];
+      if (o.mh > bottom + 0.05 || o.wh <= vb + 0.01) continue;
+      if (!inside(j, ix, iz)) continue;
+      const coplanar = !inside(j, ox, oz);
+      if (coplanar && Math.abs(o.wh - top) < 0.05 && Math.abs(o.mh - b.mh) < 0.05 && j > i) continue; // identical wall: lower index draws it
+      vb = Math.max(vb, o.wh);
+    }
+    return vb;
+  }
   world.buildings.forEach((b, idx) => {
     if (skip.has(idx)) return;
     const c = centroid(b.p);
@@ -187,11 +219,32 @@ export function buildBuildings(world, mats, opts = {}) {
     let bottom = b.mh;
     if (b.k === 'roof') bottom = Math.max(b.mh, b.wh - 0.35);
     for (const ring of rings) {
-      let u = 0;
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], d = ring[(i + 1) % ring.length];
         const ta = hAt ? hAt(a[0], a[1]) : b.wh, tb = hAt ? hAt(d[0], d[1]) : b.wh;
-        ch.walls.quad(a, d, bottom, bottom, ta, tb, col, style, b.lh, seed + i * 0.37, b.lv, 0, null, Math.max(ta, tb));
+        const L = Math.hypot(d[0] - a[0], d[1] - a[1]);
+        if (L < 0.01) continue;
+        const ux = (d[0] - a[0]) / L, uz = (d[1] - a[1]) / L, nx = uz, nz = -ux;
+        const n = Math.max(1, Math.ceil(L / 1.0));
+        // runs of equal visible bottom along the edge
+        let runStart = 0, runVb = null;
+        const flush = (k) => {
+          if (runVb === null) return;
+          const d0 = runStart * L / n, d1 = k * L / n;
+          const t0 = ta + (tb - ta) * d0 / L, t1 = ta + (tb - ta) * d1 / L;
+          if (runVb < Math.max(t0, t1) - 0.05) {
+            const A = [a[0] + ux * d0, a[1] + uz * d0], D = [a[0] + ux * d1, a[1] + uz * d1];
+            ch.walls.quad(A, D, runVb, runVb, Math.max(t0, runVb), Math.max(t1, runVb), col, style, b.lh, seed + i * 0.37, b.lv, d0, L, Math.max(ta, tb));
+          }
+        };
+        for (let k = 0; k < n; k++) {
+          const dm = (k + 0.5) * L / n;
+          const vb = b.k === 'roof' ? bottom : visibleBottom(idx, bottom, Math.max(ta, tb), a[0] + ux * dm, a[1] + uz * dm, nx, nz);
+          const vq = Math.round(vb * 20) / 20;
+          if (runVb === null) { runVb = vq; runStart = k; }
+          else if (vq !== runVb) { flush(k); runVb = vq; runStart = k; }
+        }
+        flush(n);
       }
     }
     // canopies need an underside

@@ -90,7 +90,10 @@ export class Game {
 
   pixelRatioFor(q) {
     const dpr = window.devicePixelRatio || 1;
-    return Math.min(dpr, q === 'high' ? 2 : q === 'medium' ? 1.25 : 0.85);
+    // phones have few CSS pixels but high DPR: allow a sharper image there
+    const small = window.innerWidth * window.innerHeight < 600000;
+    if (small) return Math.min(dpr, q === 'high' ? 2 : q === 'medium' ? 1.6 : 1.2);
+    return Math.min(dpr, q === 'high' ? 1.5 : q === 'medium' ? 1.0 : 0.75);
   }
 
   setQuality(q) {
