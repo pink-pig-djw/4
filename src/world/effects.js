@@ -5,6 +5,7 @@ import { globalUniforms } from './materials.js';
 import { leafAtlas } from './textures.js';
 import { rng, hash2, pointInPoly } from '../shared/geom.js';
 import { SPECIES } from './trees/species.js';
+import { groundY } from './terrain.js';
 
 const LEAF_COLS = ['#c9a22c', '#d8b43a', '#cf7d2c', '#b8632a', '#9a4426', '#8f9a3a', '#b3a032', '#7f5a2e', '#e0b050'].map(c => new THREE.Color(c));
 const DRY = new THREE.Color('#7a5a38');
@@ -88,11 +89,11 @@ export class Effects {
     for (let i = 0; i < N; i++) { off[i * 4] = r(); off[i * 4 + 1] = r(); off[i * 4 + 2] = r(); off[i * 4 + 3] = i / N; }
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(off, 4));
     g.instanceCount = N;
-    const u = this.rippleU = { uCam: this.rainU.uCam, uTime: globalUniforms.uTime, uAmt: this.rainU.uAmt };
+    const u = this.rippleU = { uCam: this.rainU.uCam, uTime: globalUniforms.uTime, uAmt: this.rainU.uAmt, uGround: { value: 0 } };
     const m = new THREE.ShaderMaterial({
       uniforms: u, transparent: true, depthWrite: false,
       vertexShader: /* glsl */`
-        uniform vec3 uCam; uniform float uTime; uniform float uAmt; attribute vec4 aOff; varying vec2 vUv; varying float vT; varying float vA;
+        uniform vec3 uCam; uniform float uTime; uniform float uAmt; uniform float uGround; attribute vec4 aOff; varying vec2 vUv; varying float vT; varying float vA;
         void main() {
           vUv = uv;
           if (aOff.w > uAmt) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
@@ -100,7 +101,7 @@ export class Effects {
           float cyc = floor(t);
           vT = fract(t);
           vec2 rnd = fract(vec2(sin(cyc * 12.9898 + aOff.x * 78.233), sin(cyc * 39.346 + aOff.z * 11.135)) * 43758.5453);
-          vec3 c = vec3(uCam.x + (rnd.x - 0.5) * 22.0, 0.1, uCam.z + (rnd.y - 0.5) * 22.0);
+          vec3 c = vec3(uCam.x + (rnd.x - 0.5) * 22.0, uGround + 0.1, uCam.z + (rnd.y - 0.5) * 22.0);
           float s = 0.05 + vT * 0.28;
           vec4 mv = viewMatrix * vec4(c + position * s, 1.0);
           vA = smoothstep(14.0, 3.0, length(mv.xyz));
@@ -190,7 +191,7 @@ export class Effects {
         if (n >= mesh.instanceMatrix.count) break;
         if (L[5] > amt) continue;
         e.set(L[5] * 0.4, L[2], 0); q.setFromEuler(e);
-        m4.compose(v.set(L[0], 0.085, L[1]), q, s.set(L[3], 1, L[3]));
+        m4.compose(v.set(L[0], groundY(L[0], L[1]) + 0.085, L[1]), q, s.set(L[3], 1, L[3]));
         mesh.setMatrixAt(n, m4);
         mesh.setColorAt(n, L[4]);
         n++;
@@ -242,10 +243,11 @@ export class Effects {
         L.ox = (Math.random() - 0.5) * 1.6 * cr.R; L.oz = (Math.random() - 0.5) * 1.6 * cr.R; L.h = cr.H * (0.35 + Math.random() * 0.45);
         L.dur = 3 + L.h * 0.45 + Math.random() * 3;
         L.col = leafColour(L.tree.sp, Math.random(), Math.random());
+        L.gy = null;
       }
       const f = L.t / L.dur, y = L.h * (1 - f) + 0.1;
       const sway = Math.sin(L.t * 2.2 + L.seed) * 0.6;
-      v.set(L.tree.x + L.ox + sway + f * 1.5, y, L.tree.z + L.oz + Math.cos(L.t * 1.7 + L.seed) * 0.4);
+      v.set(L.tree.x + L.ox + sway + f * 1.5, y + (L.gy ?? (L.gy = groundY(L.tree.x + L.ox, L.tree.z + L.oz))), L.tree.z + L.oz + Math.cos(L.t * 1.7 + L.seed) * 0.4);
       e.set(L.t * 3 + L.seed, L.t * 2.3, L.t * 1.3); q.setFromEuler(e);
       m4.compose(v, q, s);
       mesh.setMatrixAt(n, m4); mesh.setColorAt(n, L.col);
@@ -277,6 +279,7 @@ export class Effects {
     this.rainU.uAmt.value = rainAmt;
     this.rainMesh.visible = rainAmt > 0.01;
     this.rippleMesh.visible = rainAmt > 0.01;
+    this.rippleU.uGround.value = groundY(game.player.x, game.player.z);
     const la = W.leaves ?? 1;
     if (Math.abs(la - (this.lastLeafAmt ?? la)) > 0.1) this.lastCell = null;
     this._updateGroundLeaves(p);
@@ -295,7 +298,7 @@ export class Effects {
         if (!e) { L.position.set(p.x, -50, p.z); return; }
         const l = e[1];
         const tall = l.h > 6;
-        L.position.set(l.x + (tall ? Math.cos(l.yaw) * 1.5 : 0), tall ? 7.6 : 3.9, l.z + (tall ? Math.sin(l.yaw) * 1.5 : 0));
+        L.position.set(l.x + (tall ? Math.cos(l.yaw) * 1.5 : 0), groundY(l.x, l.z) + (tall ? 7.6 : 3.9), l.z + (tall ? Math.sin(l.yaw) * 1.5 : 0));
       });
     }
     for (const L of this.lights) L.intensity = night * 55;

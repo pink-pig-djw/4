@@ -2,6 +2,7 @@
 // the inside (rooms, stairs, furniture) is invented but generated to fit that footprint.
 // Pure JS: consumed by the renderer, the collision builder and the Node walk test.
 import { obb, pointInPoly, clipSegToPoly, rng, signedArea, distSegSq } from '../../shared/geom.js';
+import { getTerrain } from '../terrain.js';
 
 // Which building parts can be entered (ids are OSM way/relation ids of building parts).
 export const ENTERABLE = [
@@ -102,6 +103,7 @@ class Plan {
     this.F = makeFrame(b.p);
     this.lh = b.lh; this.levels = b.lv;
     this.topY = b.wh;
+    this.base = b.y0 ?? 0;   // floor level on the terrain; everything in the plan is relative to it
     this.r = rng(bIdx * 31 + 7);
     this.walls = []; this.floors = []; this.ramps = []; this.rooms = []; this.furn = []; this.labels = [];
     this.lights = []; this.rails = []; this.extDoors = []; this.npcSpots = []; this.tests = []; this.holes = [];
@@ -740,6 +742,11 @@ export function buildPlans(world) {
     else if (spec.program === 'eei') ringProgram(P, { topLevel: Math.min(P.levels - 1, 4), roomKind: eeiRooms, server: false });
     else if (spec.program === 'mensa') mensaProgram(P);
     else if (spec.program === 'lecture') lectureProgram(P);
+    // ground in front of every door is graded to the floor level
+    const T = getTerrain();
+    if (T) for (const d of P.extDoors) T.flatten(d.x + d.nx * 1.2, d.z + d.nz * 1.2, P.base, 2.2, 6.5);
+    // no ground may come up through the ground floor
+    if (T) T.clampInside(P.poly, P.base - 0.35);
     // walk-in test for every exterior door
     for (const d of P.extDoors) {
       const out = { x: d.x + d.nx * 3, z: d.z + d.nz * 3 }, inn = { x: d.x - d.nx * 2.2, z: d.z - d.nz * 2.2 };
@@ -781,13 +788,27 @@ function connect(A, B) {
 }
 
 // Colliders from plans. Returns plans (with .buildingIdx) so callers can skip those buildings.
-export function buildInteriorColliders(world, cw, plans = null) {
+// Plans are laid out relative to their floor level (y = 0 on the ground floor); colliders are
+// shifted to the building's base height on the terrain.
+function offsetCW(cw, dy) {
+  if (!dy) return cw;
+  return {
+    addSegment: (ax, az, bx, bz, y0, y1, t, tag) => cw.addSegment(ax, az, bx, bz, y0 + dy, y1 + dy, t, tag),
+    addFloor: (poly, y, th, holes, tag, nt) => cw.addFloor(poly, y + dy, th, holes, tag, nt),
+    addRamp: (cx, cz, ux, uz, hl, hw, y0, y1, tag) => cw.addRamp(cx, cz, ux, uz, hl, hw, y0 + dy, y1 + dy, tag),
+    addBox: (cx, cz, hx, hz, a, y0, y1, walk, tag) => cw.addBox(cx, cz, hx, hz, a, y0 + dy, y1 + dy, walk, tag),
+    addCircle: (x, z, r, y0, y1, tag) => cw.addCircle(x, z, r, y0 + dy, y1 + dy, tag),
+  };
+}
+
+export function buildInteriorColliders(world, cwWorld, plans = null) {
   plans = plans || buildPlans(world);
   for (const P of plans) {
+    const cw = offsetCW(cwWorld, P.base);
     // exterior shell with openings (thick so the camera never touches the inner face)
     for (const e of P.ext) {
       if (!e) continue;
-      const w = { a: e.a, b: e.b, len: e.len, y0: 0, y1: P.topY + 1, openings: e.openings };
+      const w = { a: e.a, b: e.b, len: e.len, y0: -2, y1: P.topY + 1, openings: e.openings };
       for (const pc of wallPieces(w)) {
         const ux = (e.b[0] - e.a[0]) / e.len, uz = (e.b[1] - e.a[1]) / e.len;
         cw.addSegment(e.a[0] + ux * pc.d0, e.a[1] + uz * pc.d0, e.a[0] + ux * pc.d1, e.a[1] + uz * pc.d1, pc.y0, pc.y1, 0.62, 'ext:' + P.key);
@@ -798,7 +819,7 @@ export function buildInteriorColliders(world, cw, plans = null) {
       for (const pc of wallPieces(w)) cw.addSegment(w.a[0] + ux * pc.d0, w.a[1] + uz * pc.d0, w.a[0] + ux * pc.d1, w.a[1] + uz * pc.d1, pc.y0, pc.y1, Math.max(w.t, 0.14), 'wall:' + P.key);
     }
     for (const f of P.floors) {
-      if (f.kind === 'floor' && f.level === 0) continue; // ground floor = terrain
+      if (f.kind === 'floor' && f.level === 0) { cw.addFloor(f.poly, f.y, f.thick, null, 'floor0', true); continue; } // replaces the terrain inside
       if (f.kind === 'ceilingOnly') { cw.addFloor(f.poly, f.y, f.thick, null, 'slab'); continue; }
       cw.addFloor(f.poly, f.y, f.thick, f.holes && f.holes.length ? f.holes : null, f.kind);
     }
@@ -827,14 +848,15 @@ export const FURN_COLLIDER = {
 };
 
 export function interiorTestRoutes(plans) {
-  return plans.flatMap(p => p.tests);
+  return plans.flatMap(p => p.tests.map(t => ({ ...t, from: { ...t.from, y: (t.from.y ?? 0) + p.base }, points: t.points.map(q => q.y != null ? { ...q, y: q.y + p.base } : q) })));
 }
 
 // Which plan (and floor) contains point (x,z) at height y
 export function planAt(plans, x, z, y) {
   for (const P of plans) {
-    if (y > P.topY + 0.5) continue;
-    if (pointInPoly(x, z, P.poly)) return { plan: P, level: Math.max(0, Math.min(P.levels - 1, Math.floor((y + 0.6) / P.lh))) };
+    const yr = y - P.base;
+    if (yr > P.topY + 0.5 || yr < -1.5) continue;
+    if (pointInPoly(x, z, P.poly)) return { plan: P, level: Math.max(0, Math.min(P.levels - 1, Math.floor((yr + 0.6) / P.lh))) };
   }
   return null;
 }

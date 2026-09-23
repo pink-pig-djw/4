@@ -1,6 +1,7 @@
 // Street furniture & everyday details: benches, bike racks with parked bikes, lamps (lit at night),
 // bus stops, German street-name signs, university building signs, bins, post boxes, parked cars …
 import * as THREE from 'three';
+import { groundY } from './terrain.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Shape, propMaterial, instanced, chunkedInstances } from './shapes.js';
 import { globalUniforms } from './materials.js';
@@ -141,9 +142,9 @@ export class Props {
 
     const C = (geo, m, list, place, o = {}) => chunkedInstances(group, geo, m, list, place, o);
     // benches / picnic tables / loungers
-    C(benchGeo(), mat, L.benches.filter(b => b.type === 0), (b, p) => { p.set(b.x, 0, b.z); return { rot: -b.yaw }; }, { maxDist: 220, castDist: 60 });
-    C(picnicGeo(), mat, L.benches.filter(b => b.type === 1), (b, p) => { p.set(b.x, 0, b.z); return { rot: -b.yaw }; }, { maxDist: 220, castDist: 60 });
-    C(loungerGeo(), mat, L.benches.filter(b => b.type === 2), (b, p) => { p.set(b.x, 0, b.z); return { rot: -b.yaw + Math.PI / 2 }; }, { maxDist: 220, castDist: 60 });
+    C(benchGeo(), mat, L.benches.filter(b => b.type === 0), (b, p) => { p.set(b.x, groundY(b.x, b.z), b.z); return { rot: -b.yaw }; }, { maxDist: 220, castDist: 60 });
+    C(picnicGeo(), mat, L.benches.filter(b => b.type === 1), (b, p) => { p.set(b.x, groundY(b.x, b.z), b.z); return { rot: -b.yaw }; }, { maxDist: 220, castDist: 60 });
+    C(loungerGeo(), mat, L.benches.filter(b => b.type === 2), (b, p) => { p.set(b.x, groundY(b.x, b.z), b.z); return { rot: -b.yaw + Math.PI / 2 }; }, { maxDist: 220, castDist: 60 });
 
     // bike racks & bikes
     const stands = [];
@@ -151,39 +152,40 @@ export class Props {
       const ux = Math.cos(r.along), uz = Math.sin(r.along);
       for (let i = 0; i < r.n; i++) { const o = (i - (r.n - 1) / 2) * 1.0; stands.push({ x: r.x + ux * o, z: r.z + uz * o, yaw: r.along + Math.PI / 2 }); }
     }
-    C(standGeo(), steel, stands, (st, p) => { p.set(st.x, 0, st.z); return { rot: -st.yaw }; }, { maxDist: 140, castDist: 40, chunk: 64 });
+    C(standGeo(), steel, stands, (st, p) => { p.set(st.x, groundY(st.x, st.z), st.z); return { rot: -st.yaw }; }, { maxDist: 140, castDist: 40, chunk: 64 });
     const bikes = L.racks.flatMap(r => r.bikes);
-    C(bikeGeo(), mat, bikes, (b, p, s, c) => { p.set(b.x, 0, b.z); c.set(BIKE_COLORS[b.c]); return { rot: -b.yaw, tilt: b.lean }; }, { color: true, maxDist: 150, castDist: 45, chunk: 64 });
+    C(bikeGeo(), mat, bikes, (b, p, s, c) => { p.set(b.x, groundY(b.x, b.z), b.z); c.set(BIKE_COLORS[b.c]); return { rot: -b.yaw, tilt: b.lean }; }, { color: true, maxDist: 150, castDist: 45, chunk: 64 });
 
     // lamps
     const tall = L.lamps.filter(l => l.h > 6), short = L.lamps.filter(l => l.h <= 6);
-    C(lampTallGeo(), mat, tall, (l, p) => { p.set(l.x, 0, l.z); return { rot: -l.yaw }; }, { maxDist: 600, castDist: 90, chunk: 128 });
-    C(lampShortGeo(), mat, short, (l, p) => { p.set(l.x, 0, l.z); return { rot: 0 }; }, { maxDist: 350, castDist: 70, chunk: 128 });
+    C(lampTallGeo(), mat, tall, (l, p) => { p.set(l.x, groundY(l.x, l.z), l.z); return { rot: -l.yaw }; }, { maxDist: 600, castDist: 90, chunk: 128 });
+    C(lampShortGeo(), mat, short, (l, p) => { p.set(l.x, groundY(l.x, l.z), l.z); return { rot: 0 }; }, { maxDist: 350, castDist: 70, chunk: 128 });
     this._lightPools(L.lamps);
 
     // bins, bollards, misc
-    C(binGeo(), mat, L.bins, (b, p) => { p.set(b.x, 0, b.z); return { rot: (b.x * 13.1) % 6.28 }; }, { maxDist: 160, castDist: 40 });
-    C(bollardGeo(), mat, L.bollards, (b, p) => { p.set(b.x, 0, b.z); return { rot: 0 }; }, { cast: false, maxDist: 150 });
+    C(binGeo(), mat, L.bins, (b, p) => { p.set(b.x, groundY(b.x, b.z), b.z); return { rot: (b.x * 13.1) % 6.28 }; }, { maxDist: 160, castDist: 40 });
+    C(bollardGeo(), mat, L.bollards, (b, p) => { p.set(b.x, groundY(b.x, b.z), b.z); return { rot: 0 }; }, { cast: false, maxDist: 150 });
     for (const [k, fn] of Object.entries(MISC_BUILD)) {
       const list = L.misc.filter(m => m.k === k);
       if (!list.length) continue;
       const s = new Shape(); fn(s);
-      C(s.build(), mat, list, (m, p) => { p.set(m.x, 0, m.z); return { rot: -m.yaw }; }, { maxDist: 200, castDist: 50 });
+      C(s.build(), mat, list, (m, p) => { p.set(m.x, groundY(m.x, m.z), m.z); return { rot: -m.yaw }; }, { maxDist: 200, castDist: 50 });
     }
     // cars
     const carMat = propMaterial(globalUniforms, { metalness: 0.45, roughness: 0.35 });
     for (let type = 0; type < 3; type++) {
       const list = L.cars.filter(c => c.type === type);
-      C(carGeo(type), carMat, list, (c, p, s, col) => { p.set(c.x, 0, c.z); col.set(CAR_COLORS[c.c]); return { rot: -c.yaw }; }, { color: true, maxDist: 320, castDist: 70, chunk: 128 });
+      C(carGeo(type), carMat, list, (c, p, s, col) => { p.set(c.x, groundY(c.x, c.z), c.z); col.set(CAR_COLORS[c.c]); return { rot: -c.yaw }; }, { color: true, maxDist: 320, castDist: 70, chunk: 128 });
     }
     // traffic signals
-    C(signalGeo(), mat, L.signals, (s, p) => { p.set(s.x, 0, s.z); return { rot: -s.yaw }; }, { maxDist: 300, castDist: 60, chunk: 128 });
+    C(signalGeo(), mat, L.signals, (s, p) => { p.set(s.x, groundY(s.x, s.z), s.z); return { rot: -s.yaw }; }, { maxDist: 300, castDist: 60, chunk: 128 });
     // parking stall lines
     {
       const pos = [];
       for (const [x0, z0, x1, z1] of L.stallLines) {
-        const dx = x1 - x0, dz = z1 - z0, l = Math.hypot(dx, dz) || 1, nx = -dz / l * 0.06, nz = dx / l * 0.06, y = 0.03;
-        pos.push(x0 - nx, y, z0 - nz, x1 + nx, y, z1 + nz, x1 - nx, y, z1 - nz, x0 - nx, y, z0 - nz, x0 + nx, y, z0 + nz, x1 + nx, y, z1 + nz);
+        const dx = x1 - x0, dz = z1 - z0, l = Math.hypot(dx, dz) || 1, nx = -dz / l * 0.06, nz = dx / l * 0.06;
+        const ya = groundY(x0, z0) + 0.055, yb = groundY(x1, z1) + 0.055;
+        pos.push(x0 - nx, ya, z0 - nz, x1 + nx, yb, z1 + nz, x1 - nx, yb, z1 - nz, x0 - nx, ya, z0 - nz, x0 + nx, ya, z0 + nz, x1 + nx, yb, z1 + nz);
       }
       if (pos.length) {
         const g = new THREE.BufferGeometry();
@@ -206,7 +208,8 @@ export class Props {
     const mesh = instanced(g, m, lamps, (l, p, s) => {
       const tallL = l.h > 6;
       const off = tallL ? 1.5 : 0;
-      p.set(l.x + Math.cos(l.yaw) * off, 0.09, l.z + Math.sin(l.yaw) * off);
+      const px = l.x + Math.cos(l.yaw) * off, pz = l.z + Math.sin(l.yaw) * off;
+      p.set(px, groundY(px, pz) + 0.12, pz);
       s.set(tallL ? 16 : 9, 1, tallL ? 16 : 9);
       return { rot: 0 };
     }, { cast: false });
@@ -222,7 +225,8 @@ export class Props {
     const shapes = new Shape();
     // street name signs (white, black text + frame; DIN style)
     for (const s of L.streetSigns) {
-      shapes.cyl(0.035, 0.035, 2.95, s.x, 1.475, s.z, '#8a8d90', 6);
+      const g0 = groundY(s.x, s.z);
+      shapes.cyl(0.035, 0.035, 2.95, s.x, g0 + 1.475, s.z, '#8a8d90', 6);
       s.names.forEach((name, i) => {
         const uv = atlas.add(384, 84, (ctx, w, h) => {
           ctx.fillStyle = '#fbfbf7'; ctx.fillRect(0, 0, w, h);
@@ -230,7 +234,7 @@ export class Props {
           ctx.fillStyle = '#111'; fitText(ctx, name, w - 36, 50, '600'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(name, w / 2, h / 2 + 2);
         });
         const dir = s.dirs[i] ?? 0;
-        const y = 2.62 - i * 0.26;
+        const y = g0 + 2.62 - i * 0.26;
         // plate parallel to the street: facing = street normal
         const face = dir + Math.PI / 2;
         const cx = s.x + Math.cos(dir) * 0.47, cz = s.z + Math.sin(dir) * 0.47;
@@ -254,9 +258,10 @@ export class Props {
         lines.slice(0, 6).forEach((l, i) => ctx.fillText(l, 20, 84 + i * (size + 6)));
         if (s.addr) { ctx.font = `500 18px ${SIGN_FONT}`; ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillText(s.addr, 20, h - 40); }
       });
-      shapes.box(0.18, 2.2, 1.8, s.x, 1.1, s.z, '#1f3f6e', 0, -s.yaw);
-      pushQuad(buf, s.x, 1.25, s.z, s.yaw, 1.5, 1.8, uv, 0.095);
-      pushQuad(buf, s.x, 1.25, s.z, s.yaw + Math.PI, 1.5, 1.8, uv, 0.095);
+      const g0 = groundY(s.x, s.z);
+      shapes.box(0.18, 2.4, 1.8, s.x, g0 + 1.0, s.z, '#1f3f6e', 0, -s.yaw);
+      pushQuad(buf, s.x, g0 + 1.25, s.z, s.yaw, 1.5, 1.8, uv, 0.095);
+      pushQuad(buf, s.x, g0 + 1.25, s.z, s.yaw + Math.PI, 1.5, 1.8, uv, 0.095);
     }
     this._atlasBuf = buf;
     this._atlasShapes = shapes;
@@ -284,20 +289,21 @@ export class Props {
         });
         cache.set(key, uv);
       }
-      shapes.cyl(0.04, 0.04, 3.0, st.x, 1.5, st.z, '#8a8d90', 6);
+      const g0 = groundY(st.x, st.z);
+      shapes.cyl(0.04, 0.04, 3.2, st.x, g0 + 1.4, st.z, '#8a8d90', 6);
       // sign faces along the road both ways
-      pushQuad(buf, st.x, 2.55, st.z, st.along, 0.4, 0.6, uv, 0.03);
-      pushQuad(buf, st.x, 2.55, st.z, st.along + Math.PI, 0.4, 0.6, uv, 0.03);
-      shapes.box(0.05, 0.45, 0.32, st.x - st.nx * 0.07, 1.5, st.z - st.nz * 0.07, '#dfe3e6', 0, -st.along); // timetable case
+      pushQuad(buf, st.x, g0 + 2.55, st.z, st.along, 0.4, 0.6, uv, 0.03);
+      pushQuad(buf, st.x, g0 + 2.55, st.z, st.along + Math.PI, 0.4, 0.6, uv, 0.03);
+      shapes.box(0.05, 0.45, 0.32, st.x - st.nx * 0.07, g0 + 1.5, st.z - st.nz * 0.07, '#dfe3e6', 0, -st.along); // timetable case
       if (st.sh) {
         const nx = st.nx, nz = st.nz, yaw = Math.atan2(nz, nx);
-        const cx = st.sh.x, cz = st.sh.z;
+        const cx = st.sh.x, cz = st.sh.z, gs = groundY(cx, cz);
         // posts
-        for (const sg of [-1.8, 1.8]) for (const d of [0.7, -0.3]) shapes.cyl(0.04, 0.04, 2.4, cx + -nz * sg + nx * d, 1.2, cz + nx * sg + nz * d, '#44484c', 6);
-        const roof = new THREE.BoxGeometry(1.5, 0.08, 3.9); roof.rotateY(-yaw); roof.translate(cx + nx * 0.2, 2.42, cz + nz * 0.2); shapes.geo(roof, '#44484c');
-        const bench = new THREE.BoxGeometry(0.35, 0.05, 2.2); bench.rotateY(-yaw); bench.translate(cx + nx * 0.45, 0.45, cz + nz * 0.45); shapes.geo(bench, '#8a8d90');
-        glass.push({ x: cx + nx * 0.7, z: cz + nz * 0.7, yaw, w: 3.6, len: 3.6 });
-        for (const sg of [-1.8, 1.8]) glass.push({ x: cx - nz * sg + nx * 0.2, z: cz + nx * sg + nz * 0.2, yaw: yaw + Math.PI / 2, len: 1.0 });
+        for (const sg of [-1.8, 1.8]) for (const d of [0.7, -0.3]) shapes.cyl(0.04, 0.04, 2.6, cx + -nz * sg + nx * d, gs + 1.1, cz + nx * sg + nz * d, '#44484c', 6);
+        const roof = new THREE.BoxGeometry(1.5, 0.08, 3.9); roof.rotateY(-yaw); roof.translate(cx + nx * 0.2, gs + 2.42, cz + nz * 0.2); shapes.geo(roof, '#44484c');
+        const bench = new THREE.BoxGeometry(0.35, 0.05, 2.2); bench.rotateY(-yaw); bench.translate(cx + nx * 0.45, gs + 0.45, cz + nz * 0.45); shapes.geo(bench, '#8a8d90');
+        glass.push({ x: cx + nx * 0.7, z: cz + nz * 0.7, y: gs, yaw, w: 3.6, len: 3.6 });
+        for (const sg of [-1.8, 1.8]) glass.push({ x: cx - nz * sg + nx * 0.2, z: cz + nx * sg + nz * 0.2, y: gs, yaw: yaw + Math.PI / 2, len: 1.0 });
       }
     }
     atlas.done();
@@ -313,7 +319,7 @@ export class Props {
     if (glass.length) {
       const gm = new THREE.MeshStandardMaterial({ color: 0xcfe3ea, transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.2, depthWrite: false, side: THREE.DoubleSide });
       const gg = [];
-      for (const q of glass) { const b = new THREE.PlaneGeometry(q.len, 2.0); b.rotateY(-q.yaw + Math.PI / 2); b.translate(q.x, 1.25, q.z); gg.push(b); }
+      for (const q of glass) { const b = new THREE.PlaneGeometry(q.len, 2.0); b.rotateY(-q.yaw + Math.PI / 2); b.translate(q.x, q.y + 1.25, q.z); gg.push(b); }
       const gmesh = new THREE.Mesh(mergeGeometries(gg), gm);
       gmesh.renderOrder = 3;
       this.group.add(gmesh);

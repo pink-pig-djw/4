@@ -9,6 +9,7 @@ import { Shape, propMaterial } from './shapes.js';
 import { globalUniforms, STYLE_ID } from './materials.js';
 import { WallBuf, parapetHeight } from './buildings.js';
 import { obb, area as polyArea, pointInPoly, rng, distSegSq, polyBounds } from '../shared/geom.js';
+import { groundY } from './terrain.js';
 
 const CHUNK = 150;
 const RESID = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'bungalow', 'apartments', 'residential', 'dormitory', 'farm']);
@@ -38,7 +39,7 @@ export function buildDetails(world, mats, opts = {}) {
     const a = polyArea(b.p);
     if (a < 120) return;
     const seed = (idx * 7.13) % 97;
-    const y = b.wh - parapetHeight(b, seed);
+    const y = (b.y0 ?? 0) + b.wh - parapetHeight(b, seed);
     const r = rng(idx * 31 + 7);
     const bb = obb(b.p);
     const [x0, z0, x1, z1] = polyBounds(b.p);
@@ -87,10 +88,12 @@ export function buildDetails(world, mats, opts = {}) {
     const D = [e.x + tx * w / 2 + e.nx * off, e.z + tz * w / 2 + e.nz * off];
     const c = get(e.x, e.z);
     const col = new THREE.Color(resid ? 0x5a4a3a : 0x303234);
+    const Y = b.y0 ?? 0;
+    c.doors.yOff = Y;
     c.doors.quad(A, D, 0, 0, h, h, col, STYLE_ID.door, 10, e.b % 97, 1, 0, w, h);
     if (e.k === 'main' && PUBLIC.has(b.k) && b.wh > h + 0.6) {
       // canopy: slab on the wall, 1.8 m deep
-      const cw = w + 1.4, cd = 1.8, cy = Math.min(h + 0.35, b.wh - 0.2);
+      const cw = w + 1.4, cd = 1.8, cy = Y + Math.min(h + 0.35, b.wh - 0.2);
       const cx = e.x + e.nx * cd / 2, cz = e.z + e.nz * cd / 2;
       const ang = Math.atan2(tz, tx);
       c.canopy.box(cw, 0.18, cd, cx, cy, cz, '#6e6f70', 0, -ang);
@@ -107,7 +110,7 @@ export function buildDetails(world, mats, opts = {}) {
     const rh = Math.max(0, b.h - b.wh);
     if (rh < 0.3) return;
     const c = get(r.cx, r.cz);
-    const ov = 0.35, eave = b.wh - ov * (rh / r.hd);
+    const ov = 0.35, eave = (b.y0 ?? 0) + b.wh - ov * (rh / r.hd);
     const vx = -r.uz, vz = r.ux;
     const at = (s, t) => [r.cx + r.ux * s + vx * t, r.cz + r.uz * s + vz * t];
     const zinc = RESID.has(b.k) ? '#8a8d8e' : '#5d6062';
@@ -120,7 +123,7 @@ export function buildDetails(world, mats, opts = {}) {
         const top = at(end * (r.hw - 0.25), side * (r.hd + ov - 0.06));
         const wall = at(end * (r.hw - 0.25), side * (r.hd + 0.08));
         c.pipes.tube([top[0], eave - 0.08, top[1]], [wall[0], eave - 0.45, wall[1]], 0.045, zinc, 0, 6);
-        c.pipes.tube([wall[0], eave - 0.45, wall[1]], [wall[0], 0.12, wall[1]], 0.045, zinc, 0, 6);
+        c.pipes.tube([wall[0], eave - 0.45, wall[1]], [wall[0], groundY(wall[0], wall[1]) + 0.12, wall[1]], 0.045, zinc, 0, 6);
       }
     }
   });

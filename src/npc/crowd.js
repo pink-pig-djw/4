@@ -9,6 +9,7 @@ import { propMaterial } from '../world/shapes.js';
 import { globalUniforms } from '../world/materials.js';
 import { BIKE_COLORS } from '../world/layout.js';
 import { PLAYER } from '../physics/controller.js';
+import { groundY } from '../world/terrain.js';
 
 const TAU = Math.PI * 2;
 let NEXT_ID = 1;
@@ -111,6 +112,13 @@ export class Crowd {
     this._m4 = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._s = new THREE.Vector3(1, 1, 1); this._c = new THREE.Color();
   }
 
+  // height of the walkable surface under (x, z), continuing from the previous height
+  _gy(x, z, prev = null) {
+    const t = groundY(x, z);
+    const h = this.game.cw.groundHeight(x, z, (prev ?? t) + 0.5);
+    return Number.isFinite(h) ? h : t;
+  }
+
   // ---------- people factory ----------
   _person(kind, role = 'student') {
     const r = this.r;
@@ -145,7 +153,7 @@ export class Crowd {
     const fromDoor = r() < 0.3 ? this.doors.filter(d => { const dd = Math.hypot(d.x - p.x, d.z - p.z); return dd > 25 && dd < 110; }) : [];
     if (fromDoor.length) {
       const d = fromDoor[Math.floor(r() * fromDoor.length)];
-      w.x = d.x; w.z = d.z; w.yaw = Math.atan2(d.nz, d.nx);
+      w.x = d.x; w.z = d.z; w.y = this._gy(w.x, w.z); w.yaw = Math.atan2(d.nz, d.nx);
       // join the nearest path node
       const cand = this._nodesNear(d.x, d.z, 0, 30, 1);
       if (!cand.length) return null;
@@ -164,7 +172,7 @@ export class Crowd {
       w.from = pick; w.to = e.to; w.edge = e;
       const a = this.nodes[pick], b = this.nodes[e.to];
       const f = r();
-      w.x = a[0] + (b[0] - a[0]) * f; w.z = a[1] + (b[1] - a[1]) * f;
+      w.x = a[0] + (b[0] - a[0]) * f; w.z = a[1] + (b[1] - a[1]) * f; w.y = this._gy(w.x, w.z);
       w.yaw = Math.atan2(b[1] - a[1], b[0] - a[0]);
     }
     // some walkers head for the Mensa (daytime)
@@ -261,7 +269,7 @@ export class Crowd {
       if (w.stuck > 1.2) { w.stuck = 0; w.direct = null; const t = w.to; w.to = w.from >= 0 ? w.from : w.to; w.from = t; }
     }
     const moveD = Math.hypot(nx - w.x, nz - w.z);
-    w.x = nx; w.z = nz;
+    w.x = nx; w.z = nz; w.y = this._gy(nx, nz, w.y);
     w.yaw = angleLerp(w.yaw, Math.atan2(uz, ux), Math.min(1, dt * 5));
     w.phase += moveD / 1.32 * TAU;
     walkPose(w.pose, w.phase, Math.min(1, moveD / (dt * 1.1 + 1e-6)));
@@ -282,7 +290,7 @@ export class Crowd {
     c.umbrella = false;
     c.from = n0; c.to = e.to; c.edge = e;
     const a = this.nodes[n0];
-    c.x = a[0]; c.z = a[1]; c.speed = 3.8 + r() * 1.8; c.crank = 0;
+    c.x = a[0]; c.z = a[1]; c.y = this._gy(c.x, c.z); c.speed = 3.8 + r() * 1.8; c.crank = 0;
     c.bikeColor = BIKE_COLORS[Math.floor(r() * BIKE_COLORS.length)];
     c.rang = 0;
     return c;
@@ -317,7 +325,7 @@ export class Crowd {
     let speed = c.speed;
     // brake for the player / ring the bell
     const pdx = p.x - c.x, pdz = p.z - c.z, pd = Math.hypot(pdx, pdz);
-    if (pd < 16 && p.y < 1.5) {
+    if (pd < 16 && Math.abs(p.y - c.y) < 1.5) {
       const ahead = (pdx * vx + pdz * vz) / (pd || 1);
       const lat = Math.abs(pdx * -vz + pdz * vx);
       if (ahead > 0.6 && lat < 1.6) {
@@ -327,7 +335,7 @@ export class Crowd {
     }
     if (pd > 30) c.rang = 0;
     const mv = speed * dt;
-    c.x += vx * mv; c.z += vz * mv;
+    c.x += vx * mv; c.z += vz * mv; c.y = this._gy(c.x, c.z, c.y);
     c.yaw = angleLerp(c.yaw, Math.atan2(vz, vx), Math.min(1, dt * 4));
     c.crank += mv / 2.1 * TAU;
     cyclePose(c.pose, c.crank);
@@ -343,7 +351,7 @@ export class Crowd {
     for (const [i, s] of g.layout.seats.entries()) {
       if (Math.abs(s.x - p.x) > R || Math.abs(s.z - p.z) > R) continue;
       if (hash2(i * 7 + 1, 3) > 0.38 * F.sit) continue;
-      want.set('seat' + i, { kind: 'sit', x: s.x, z: s.z, y: 0, yaw: s.yaw, h: 0.46, tags: ['any'] });
+      want.set('seat' + i, { kind: 'sit', x: s.x, z: s.z, y: groundY(s.x, s.z), yaw: s.yaw, h: 0.46, tags: ['any'] });
     }
     // lawn groups
     for (const [i, s] of g.layout.lawnSpots.entries()) {
@@ -352,7 +360,7 @@ export class Crowd {
       const n = 2 + Math.floor(hash2(i, 77) * 3);
       for (let k = 0; k < n; k++) {
         const a = s.yaw + k / n * TAU;
-        want.set(`lawn${i}_${k}`, { kind: 'ground', x: s.x + Math.cos(a) * 0.85, z: s.z + Math.sin(a) * 0.85, y: 0, yaw: a + Math.PI, tags: ['any', 'study'] });
+        want.set(`lawn${i}_${k}`, { kind: 'ground', x: s.x + Math.cos(a) * 0.85, z: s.z + Math.sin(a) * 0.85, y: groundY(s.x + Math.cos(a) * 0.85, s.z + Math.sin(a) * 0.85), yaw: a + Math.PI, tags: ['any', 'study'] });
       }
     }
     // indoors (plans near the player)
@@ -365,7 +373,7 @@ export class Crowd {
         const occ = { eat: 0.62, lecture: 0.55, sitChair: 0.5, sitTable: 0.55, staff: 1, stand: 0.7, corridor: 0.45 }[s.kind] ?? 0.4;
         const nightF = s.kind === 'staff' ? (F.night > 0.5 ? 0 : 1) : (1 - F.night * 0.75);
         if (hsh > occ * nightF) return;
-        const base = { x: s.x, z: s.z, y: s.y || 0, yaw: s.yaw || 0, tags: [tag, 'study', 'any'], indoor: P };
+        const base = { x: s.x, z: s.z, y: (s.y || 0) + P.base, yaw: s.yaw || 0, tags: [tag, 'study', 'any'], indoor: P };
         if (s.kind === 'eat') want.set(`${P.key}${i}`, { ...base, kind: 'eat', h: 0.46 });
         else if (s.kind === 'lecture') want.set(`${P.key}${i}`, { ...base, kind: 'sit', h: 0.46 });
         else if (s.kind === 'sitChair' || s.kind === 'sitTable') want.set(`${P.key}${i}`, { ...base, kind: 'sit', h: 0.46 });
@@ -378,7 +386,7 @@ export class Crowd {
           const fx = Math.cos(k.yaw), fz = Math.sin(k.yaw);
           for (let q = 0; q < 3; q++) {
             if (hash2(ki * 5 + q, 41) > 0.8) continue;
-            want.set(`q${P.key}${ki}_${q}`, { kind: 'stand', tray: true, indoor: P, x: k.x + fx * (1.3 + q * 0.85) + -fz * 0.9, z: k.z + fz * (1.3 + q * 0.85) + fx * 0.9, y: 0, yaw: k.yaw + Math.PI, tags: ['mensa'] });
+            want.set(`q${P.key}${ki}_${q}`, { kind: 'stand', tray: true, indoor: P, x: k.x + fx * (1.3 + q * 0.85) + -fz * 0.9, z: k.z + fz * (1.3 + q * 0.85) + fx * 0.9, y: P.base, yaw: k.yaw + Math.PI, tags: ['mensa'] });
           }
         });
       }
@@ -414,7 +422,7 @@ export class Crowd {
       if (Math.hypot(d.x - p.x, d.z - p.z) < 120) {
         const w = this._spawnWalker(false);
         if (w) {
-          w.x = d.x + d.nx * 1.2; w.z = d.z + d.nz * 1.2; w.yaw = Math.atan2(d.nz, d.nx); w.goal = null;
+          w.x = d.x + d.nx * 1.2; w.z = d.z + d.nz * 1.2; w.y = this._gy(w.x, w.z); w.yaw = Math.atan2(d.nz, d.nx); w.goal = null;
           const cand = this._nodesNear(w.x, w.z, 0, 35, 1).sort((a, b) => Math.hypot(this.nodes[a][0] - w.x, this.nodes[a][1] - w.z) - Math.hypot(this.nodes[b][0] - w.x, this.nodes[b][1] - w.z));
           if (cand.length) { w.from = -1; w.to = cand[0]; w.direct = { x: this.nodes[cand[0]][0], z: this.nodes[cand[0]][1] }; this.walkers.push(w); }
         }
@@ -488,7 +496,7 @@ export class Crowd {
       // bike under the rider
       const bx = c.x, bz = c.z;
       this._q.setFromAxisAngle(this._v.set(0, 1, 0), -c.yaw);
-      this._m4.compose(this._v.set(bx, 0, bz), this._q, this._s);
+      this._m4.compose(this._v.set(bx, c.y, bz), this._q, this._s);
       this.bikeMesh.setMatrixAt(bi, this._m4);
       this._c.set(c.bikeColor); this.bikeMesh.setColorAt(bi, this._c);
       bi++;

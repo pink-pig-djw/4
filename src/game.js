@@ -4,6 +4,7 @@ import { settings, setSetting, onSettingChange } from './core/settings.js';
 import { Input } from './core/input.js';
 import { createMaterials, globalUniforms } from './world/materials.js';
 import { buildGround } from './world/ground.js';
+import { Terrain, setTerrain, gradeSite } from './world/terrain.js';
 import { buildBuildings } from './world/buildings.js';
 import { buildDetails } from './world/buildingDetails.js';
 import { computeLayout } from './world/layout.js';
@@ -51,6 +52,11 @@ export class Game {
     this.weather.set(settings.weather in { autumn: 1, sunny: 1, overcast: 1, rain: 1, night: 1 } ? settings.weather : 'autumn', true);
     await progress(0.2);
 
+    // terrain (DGM1): decoded first — the ground, buildings, props and physics all stand on it
+    this.terrain = await Terrain.fromWorld(this.world.terrain);
+    gradeSite(this.world, this.terrain);
+    setTerrain(this.terrain);
+
     this.cw = new CollisionWorld(8);
     const [bx0, bz0, bx1, bz1] = this.world.meta.bounds;
     this.cw.bounds = [bx0, bz0, bx1, bz1];
@@ -59,8 +65,10 @@ export class Game {
     this.plans = buildPlans(this.world);
     for (const P of this.plans) for (const i of P.buildingIdx) this.skipBuildings.add(i);
     this.enterableOutlines = [...new Set(this.plans.map(P => P.b.o).filter(o => o >= 0))];
-    this.ground = buildGround(this.world, this.mats);
+    this.ground = buildGround(this.world, this.mats, r);
     scene.add(this.ground);
+    if (this.ground.userData.terrainChunks) this.updaters.push(this.ground.userData.terrainChunks);
+    if (this.ground.userData.decals) this.updaters.push(this.ground.userData.decals);
     await progress(0.35);
 
     const bld = buildBuildings(this.world, this.mats, { skip: this.skipBuildings });

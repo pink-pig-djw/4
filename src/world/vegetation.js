@@ -8,6 +8,7 @@
 // Beyond that one instanced billboard mesh shows every tree, dithering in as tier 2 fades out.
 // Tier membership is rebuilt a few times per second from a spatial grid.
 import * as THREE from 'three';
+import { groundY } from './terrain.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { rng, hash2 } from '../shared/geom.js';
 import { SPECIES, SPECIES_KEYS, HEDGE_PAL } from './trees/species.js';
@@ -71,7 +72,7 @@ export class Vegetation {
       const mi = list[(t.v || 0) % list.length];
       this.tModel[i] = mi; counts[mi]++;
       q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, t.rot);
-      m4.compose(pos.set(t.x, 0, t.z), q, scl.set(t.s, t.s * t.sy, t.s));
+      m4.compose(pos.set(t.x, groundY(t.x, t.z), t.z), q, scl.set(t.s, t.s * t.sy, t.s));
       m4.toArray(this.mat, i * 16);
       // autumn stage: neighbours are similar, each tree a bit different
       const r = rng(i * 7 + 11);
@@ -115,7 +116,7 @@ export class Vegetation {
     const aImp = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
       const t = trees[i], mi = this.tModel[i];
-      m4.compose(pos.set(t.x, 0, t.z), q.identity(), scl.set(t.s, t.s * t.sy, t.s));
+      m4.compose(pos.set(t.x, groundY(t.x, t.z), t.z), q.identity(), scl.set(t.s, t.s * t.sy, t.s));
       imp.setMatrixAt(i, m4);
       aImp[i * 4] = mi; aImp[i * 4 + 1] = this.models[mi].species; aImp[i * 4 + 2] = hash2(i, 5) < 0.5 ? 1 : -1;
     }
@@ -184,15 +185,24 @@ export class Vegetation {
     const core = [], cards = { pos: [], nor: [], uv: [], card: [], wind: [], idx: [] };
     const tiles = [12, 13];
     const up = new THREE.Vector3(0, 1, 0);
-    for (const b of w.barriers) {
-      if (b.k !== 'hedge') continue;
-      for (let i = 0; i < b.p.length - 1; i++) {
-        const [ax, az] = b.p[i], [bx, bz] = b.p[i + 1];
+    // pieces between gates / path openings (shared with the colliders), cut to ≤ 5 m so each
+    // piece sits on the ground even on a slope
+    const segs = [];
+    for (const pc of this.game.layout.barrierPieces) {
+      if (pc.k !== 'hedge') continue;
+      const [ax0, az0] = pc.a, [bx0, bz0] = pc.b;
+      const L0 = Math.hypot(bx0 - ax0, bz0 - az0), n = Math.max(1, Math.ceil(L0 / 5));
+      for (let k = 0; k < n; k++) segs.push({ h: pc.h, a: [ax0 + (bx0 - ax0) * k / n, az0 + (bz0 - az0) * k / n], b: [ax0 + (bx0 - ax0) * (k + 1) / n, az0 + (bz0 - az0) * (k + 1) / n] });
+    }
+    for (const b of segs) {
+      {
+        const [ax, az] = b.a, [bx, bz] = b.b;
         const L = Math.hypot(bx - ax, bz - az); if (L < 0.2) continue;
         const ux = (bx - ax) / L, uz = (bz - az) / L, nx = -uz, nz = ux;
-        const g = new THREE.BoxGeometry(L + 0.3, b.h - 0.12, 0.72);
+        const ga = groundY(ax, az), gb = groundY(bx, bz), gm = (ga + gb) / 2, lo = Math.min(ga, gb) - 0.15;
+        const g = new THREE.BoxGeometry(L + 0.15, b.h - 0.12 + (gm - lo), 0.72);
         g.rotateY(-Math.atan2(bz - az, bx - ax));
-        g.translate((ax + bx) / 2, (b.h - 0.12) / 2, (az + bz) / 2);
+        g.translate((ax + bx) / 2, lo + (b.h - 0.12 + (gm - lo)) / 2, (az + bz) / 2);
         g.deleteAttribute('uv');
         core.push(g);
         // cards over both sides and the top
@@ -219,7 +229,7 @@ export class Vegetation {
           const a = r() * Math.PI * 2;
           const right = t.multiplyScalar(Math.cos(a)).addScaledVector(bn, Math.sin(a));
           const tr = tileRect(tiles[k % 2], this.atlas.size);
-          const base = new THREE.Vector3(px, py, pz).addScaledVector(dirUp, -size * 0.35);
+          const base = new THREE.Vector3(px, py + groundY(px, pz), pz).addScaledVector(dirUp, -size * 0.35);
           const b0 = cards.pos.length / 3, rnd = [r(), r(), r()];
           for (const [cx, cy, u, v] of [[-0.5, 0, tr.u0, tr.vBot], [0.5, 0, tr.u1, tr.vBot], [0.5, 1, tr.u1, tr.vTop], [-0.5, 1, tr.u0, tr.vTop]]) {
             const p = base.clone().addScaledVector(right, cx * size).addScaledVector(dirUp, cy * size);

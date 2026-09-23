@@ -3,8 +3,9 @@
 //
 // Obstacles are vertical prisms with a y-range. Something blocks horizontal movement only when its
 // top is higher than the step height above the feet and its bottom is below the head.
-// Walkable surfaces (terrain y=0, floors, ramps, box tops) are queried by groundHeight().
+// Walkable surfaces (terrain, floors, ramps, box tops) are queried by groundHeight().
 import { pointInPoly, distSegSq } from '../shared/geom.js';
+import { groundY } from '../world/terrain.js';
 
 const SEG = 0, CIRCLE = 1, BOX = 2;
 
@@ -72,10 +73,11 @@ export class CollisionWorld {
   }
 
   // Horizontal floor slab: top at y, bottom at y - thickness. holes = array of polygons.
-  addFloor(poly, y, thickness = 0.3, holes = null, tag = null) {
+  // noTerrain: the floor replaces the terrain underneath (ground floors of enterable buildings)
+  addFloor(poly, y, thickness = 0.3, holes = null, tag = null, noTerrain = false) {
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
     for (const p of poly) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
-    return this._addSurface({ kind: 'floor', poly, holes, y, bottom: y - thickness, tag }, x0, z0, x1, z1);
+    return this._addSurface({ kind: 'floor', poly, holes, y, bottom: y - thickness, tag, noTerrain }, x0, z0, x1, z1);
   }
 
   // Inclined walkable rectangle (stairs/ramps). Rises from y0 at s=-hl to y1 at s=+hl along (ux,uz).
@@ -134,9 +136,17 @@ export class CollisionWorld {
     return null;
   }
 
-  // Highest walkable surface at (x,z) whose top is <= maxY. Terrain is y = 0.
+  // Terrain height at (x,z), or -Infinity inside a floor that replaces it.
+  terrainAt(x, z) {
+    const b = this._bucket(x, z);
+    if (b) for (const s of b.s) if (s.noTerrain && this._surfaceTop(s, x, z) != null) return -Infinity;
+    return groundY(x, z);
+  }
+
+  // Highest walkable surface at (x,z) whose top is <= maxY (terrain included).
   groundHeight(x, z, maxY) {
-    let best = maxY >= 0 ? 0 : -Infinity;
+    const t = this.terrainAt(x, z);
+    let best = maxY >= t - 1e-4 ? t : -Infinity;
     const b = this._bucket(x, z);
     if (!b) return best;
     for (const s of b.s) {

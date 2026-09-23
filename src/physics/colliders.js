@@ -1,16 +1,30 @@
 // Builds all static colliders from world data + layout. Pure JS (shared by game and Node walk test).
 // Rule: only things that are rendered get a collider, with the same footprint.
 import { trunkRadius } from '../world/trees/species.js';
+import { groundY as g, bridgeDecks } from '../world/terrain.js';
+
+// segment collider following the terrain: long pieces are split so the y-range stays tight
+function groundSegment(cw, ax, az, bx, bz, h, thick, tag, below = 0.3) {
+  const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / 10));
+  for (let i = 0; i < n; i++) {
+    const x0 = ax + (bx - ax) * i / n, z0 = az + (bz - az) * i / n, x1 = ax + (bx - ax) * (i + 1) / n, z1 = az + (bz - az) * (i + 1) / n;
+    const y0 = g(x0, z0), y1 = g(x1, z1), ym = g((x0 + x1) / 2, (z0 + z1) / 2);
+    cw.addSegment(x0, z0, x1, z1, Math.min(y0, y1, ym) - below, Math.max(y0, y1, ym) + h, thick, tag);
+  }
+}
 
 export function addBuildingColliders(world, cw, skip = new Set()) {
   world.buildings.forEach((b, idx) => {
     if (skip.has(idx)) return;
     if (b.mh > 2.3) return;     // overhang / bridge: walk underneath
     if (b.k === 'roof') return; // canopy with unmapped supports: open underneath
-    const top = b.h + 50;
-    cw.addPolyline(b.p, b.mh, top, 0, true, 'b' + idx);
-    for (const h of b.hl || []) cw.addPolyline(h, b.mh, top, 0, true, 'b' + idx);
-    cw.addSolid(b.p, b.mh, top, idx);
+    // walls stand on the building's floor level and reach below the lowest ground around it
+    const y0 = b.y0 ?? 0, yb = b.yb ?? y0;
+    const bottom = b.mh > 0.05 ? y0 + b.mh : Math.min(y0, yb) - 0.5;
+    const top = y0 + b.h + 50;
+    cw.addPolyline(b.p, bottom, top, 0, true, 'b' + idx);
+    for (const h of b.hl || []) cw.addPolyline(h, bottom, top, 0, true, 'b' + idx);
+    cw.addSolid(b.p, bottom, top, idx);
   });
 }
 
@@ -20,23 +34,24 @@ export function addWorldColliders(world, layout, cw, skipBuildings = new Set()) 
   // trees (trunks)
   for (const t of layout.trees) {
     if (t.k === 2) continue; // shrubs are walk-through
-    cw.addCircle(t.x, t.z, trunkRadius(t.sp, t.s), 0, 4, 'tree');
+    const y = g(t.x, t.z);
+    cw.addCircle(t.x, t.z, trunkRadius(t.sp, t.s), y - 0.3, y + 4, 'tree');
   }
   // barriers (hedges, fences, walls) — gaps at gates
-  for (const b of world.barriers) {
-    if (b.k === 'retaining_wall') continue;
-    const thick = b.k === 'hedge' ? 0.9 : b.k === 'wall' ? 0.3 : 0.08;
-    const gates = new Set(b.g || []);
-    for (let i = 0; i < b.p.length - 1; i++) {
-      let [ax, az] = b.p[i], [bx, bz] = b.p[i + 1];
-      const L = Math.hypot(bx - ax, bz - az); if (L < 0.05) continue;
-      const ux = (bx - ax) / L, uz = (bz - az) / L;
-      let s0 = 0, s1 = L;
-      if (gates.has(i)) s0 = Math.min(L, 1.6);
-      if (gates.has(i + 1)) s1 = Math.max(s0, L - 1.6);
-      if (s1 - s0 < 0.05) continue;
-      cw.addSegment(ax + ux * s0, az + uz * s0, ax + ux * s1, az + uz * s1, 0, b.h, thick, b.k);
+  // bridge decks (walkable, a ceiling for whoever passes underneath) with railings
+  for (const d of bridgeDecks(world)) {
+    cw.addRamp(d.cx, d.cz, d.ux, d.uz, d.hl, d.hw, d.y0 + 0.05, d.y1 + 0.05, 'bridge');
+    for (const side of [-1, 1]) {
+      const ox = -d.uz * (d.hw + 0.05) * side, oz = d.ux * (d.hw + 0.05) * side;
+      const s0 = d.first ? 1.5 : 0, s1 = d.last ? 1.5 : 0;
+      if (d.hl * 2 - s0 - s1 < 0.3) continue;
+      const ax = d.cx - d.ux * (d.hl - s0) + ox, az = d.cz - d.uz * (d.hl - s0) + oz, bx = d.cx + d.ux * (d.hl - s1) + ox, bz = d.cz + d.uz * (d.hl - s1) + oz;
+      cw.addSegment(ax, az, bx, bz, Math.min(d.y0, d.y1) - 0.5, Math.max(d.y0, d.y1) + 1.15, 0.1, 'railing');
     }
+  }
+  for (const pc of layout.barrierPieces) {
+    const thick = pc.k === 'hedge' ? 0.9 : pc.k === 'wall' || pc.k === 'city_wall' ? 0.3 : 0.08;
+    groundSegment(cw, pc.a[0], pc.a[1], pc.b[0], pc.b[1], pc.h, thick, pc.k);
   }
   // ponds: visible water edge, with gaps where a mapped path/bridge crosses the water
   const ri = layout.roadIndex;
@@ -54,7 +69,7 @@ export function addWorldColliders(world, layout, cw, skipBuildings = new Set()) 
         if (!onPath && start == null) start = f;
         if ((onPath || k === n) && start != null) {
           const end = onPath ? Math.max(start, f - 1 / n) : f;
-          if (end > start) cw.addSegment(A[0] + (B[0] - A[0]) * start, A[1] + (B[1] - A[1]) * start, A[0] + (B[0] - A[0]) * end, A[1] + (B[1] - A[1]) * end, 0, 1.2, 0, 'water');
+          if (end > start) groundSegment(cw, A[0] + (B[0] - A[0]) * start, A[1] + (B[1] - A[1]) * start, A[0] + (B[0] - A[0]) * end, A[1] + (B[1] - A[1]) * end, 1.2, 0, 'water');
           start = null;
         }
       }
@@ -64,43 +79,47 @@ export function addWorldColliders(world, layout, cw, skipBuildings = new Set()) 
   for (const b of layout.benches) {
     const fx = Math.cos(b.yaw), fz = Math.sin(b.yaw);
     const ang = Math.atan2(-fx, fz); // bench long axis perpendicular to facing
-    if (b.type === 1) { cw.addBox(b.x, b.z, 0.9, 0.8, ang, 0, 0.75, true, 'table'); continue; }
-    if (b.type === 2) { cw.addBox(b.x, b.z, 0.35, 1.0, ang, 0, 0.4, true, 'lounger'); continue; }
-    cw.addBox(b.x, b.z, 0.9, 0.27, ang, 0, 0.46, true, 'bench');
-    if (b.back) cw.addBox(b.x - fx * 0.24, b.z - fz * 0.24, 0.9, 0.05, ang, 0.46, 0.9, false, 'bench');
+    const y = g(b.x, b.z);
+    if (b.type === 1) { cw.addBox(b.x, b.z, 0.9, 0.8, ang, y - 0.2, y + 0.75, true, 'table'); continue; }
+    if (b.type === 2) { cw.addBox(b.x, b.z, 0.35, 1.0, ang, y - 0.2, y + 0.4, true, 'lounger'); continue; }
+    cw.addBox(b.x, b.z, 0.9, 0.27, ang, y - 0.2, y + 0.46, true, 'bench');
+    if (b.back) cw.addBox(b.x - fx * 0.24, b.z - fz * 0.24, 0.9, 0.05, ang, y + 0.46, y + 0.9, false, 'bench');
   }
   // bike racks: whole row incl. parked bikes
   for (const r of layout.racks) {
-    const hx = r.n * 0.5 + 0.2;
-    cw.addBox(r.x, r.z, hx, 0.95, r.along, 0, 1.1, false, 'bikes');
+    const hx = r.n * 0.5 + 0.2, y = g(r.x, r.z);
+    cw.addBox(r.x, r.z, hx, 0.95, r.along, y - 0.3, y + 1.1, false, 'bikes');
   }
-  for (const l of layout.lamps) cw.addCircle(l.x, l.z, 0.14, 0, l.h, 'lamp');
-  for (const b of layout.bins) cw.addCircle(b.x, b.z, 0.22, 0, 0.9, 'bin');
-  for (const b of layout.bollards) cw.addCircle(b.x, b.z, 0.1, 0, 0.9, 'bollard');
-  for (const s of layout.streetSigns) cw.addCircle(s.x, s.z, 0.07, 0, 3, 'sign');
-  for (const s of layout.signals) cw.addCircle(s.x, s.z, 0.1, 0, 3.5, 'signal');
-  for (const s of layout.buildingSigns) cw.addBox(s.x, s.z, 0.9, 0.12, Math.atan2(-Math.cos(s.yaw), Math.sin(s.yaw)) , 0, 2.3, false, 'bsign');
+  const circ = (x, z, r, h, tag) => { const y = g(x, z); cw.addCircle(x, z, r, y - 0.3, y + h, tag); };
+  for (const l of layout.lamps) circ(l.x, l.z, 0.14, l.h, 'lamp');
+  for (const b of layout.bins) circ(b.x, b.z, 0.22, 0.9, 'bin');
+  for (const b of layout.bollards) circ(b.x, b.z, 0.1, 0.9, 'bollard');
+  for (const s of layout.streetSigns) circ(s.x, s.z, 0.07, 3, 'sign');
+  for (const s of layout.signals) circ(s.x, s.z, 0.1, 3.5, 'signal');
+  for (const s of layout.buildingSigns) { const y = g(s.x, s.z); cw.addBox(s.x, s.z, 0.9, 0.12, Math.atan2(-Math.cos(s.yaw), Math.sin(s.yaw)), y - 0.3, y + 2.3, false, 'bsign'); }
   for (const m of layout.misc) {
     const sz = MISC_SIZE[m.k];
     if (!sz) continue;
-    cw.addBox(m.x, m.z, sz[0] / 2, sz[1] / 2, m.yaw + Math.PI / 2, 0, sz[2], false, m.k);
+    const y = g(m.x, m.z);
+    cw.addBox(m.x, m.z, sz[0] / 2, sz[1] / 2, m.yaw + Math.PI / 2, y - 0.3, y + sz[2], false, m.k);
   }
   for (const s of layout.stops) {
-    cw.addCircle(s.x, s.z, 0.07, 0, 3, 'stop');
+    circ(s.x, s.z, 0.07, 3, 'stop');
     if (s.sh) {
+      const y = g(s.sh.x, s.sh.z);
       // shelter: back wall (away from road) + two short side walls, open to the road
       const nx = s.nx, nz = s.nz, tx = -nz, tz = nx;
       const bx = s.sh.x + nx * 0.7, bz = s.sh.z + nz * 0.7;
-      cw.addSegment(bx - tx * 1.8, bz - tz * 1.8, bx + tx * 1.8, bz + tz * 1.8, 0, 2.4, 0.06, 'shelter');
+      cw.addSegment(bx - tx * 1.8, bz - tz * 1.8, bx + tx * 1.8, bz + tz * 1.8, y - 0.3, y + 2.4, 0.06, 'shelter');
       for (const sgn of [-1, 1]) {
         const ex = s.sh.x + tx * 1.8 * sgn, ez = s.sh.z + tz * 1.8 * sgn;
-        cw.addSegment(ex + nx * 0.7, ez + nz * 0.7, ex - nx * 0.3, ez - nz * 0.3, 0, 2.4, 0.06, 'shelter');
+        cw.addSegment(ex + nx * 0.7, ez + nz * 0.7, ex - nx * 0.3, ez - nz * 0.3, y - 0.3, y + 2.4, 0.06, 'shelter');
       }
     }
   }
   for (const c of layout.cars) {
-    const d = CAR_DIMS[c.type];
-    cw.addBox(c.x, c.z, d[0] / 2, d[1] / 2, c.yaw, 0, d[2], false, 'car');
+    const d = CAR_DIMS[c.type], y = g(c.x, c.z);
+    cw.addBox(c.x, c.z, d[0] / 2, d[1] / 2, c.yaw, y - 0.3, y + d[2], false, 'car');
   }
 }
 

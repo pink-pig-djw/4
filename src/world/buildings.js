@@ -6,7 +6,8 @@ import { obb, area as polyArea, centroid, labelPoint, pointInPoly, polyBounds } 
 const CHUNK = 220;
 
 export class WallBuf {
-  constructor() { this.pos = []; this.nor = []; this.col = []; this.f = []; this.s = []; }
+  // yOff: the building's floor level on the terrain (positions only; facade coordinates stay relative)
+  constructor() { this.pos = []; this.nor = []; this.col = []; this.f = []; this.s = []; this.yOff = 0; }
   // quad with per-corner heights; a/b = [x,z]; y0a,y0b bottoms; y1a,y1b tops
   quad(a, b, y0a, y0b, y1a, y1b, col, style, lh, seed, levels, uOff = 0, L = null, topRef = null) {
     const dx = b[0] - a[0], dz = b[1] - a[1];
@@ -20,7 +21,7 @@ export class WallBuf {
       [a[0], y0a, a[1], uOff], [a[0], y1a, a[1], uOff], [b[0], y1b, b[1], uOff + len],
     ];
     for (const v of V) {
-      this.pos.push(v[0], v[1], v[2]);
+      this.pos.push(v[0], v[1] + this.yOff, v[2]);
       this.nor.push(nx, 0, nz);
       this.col.push(col.r, col.g, col.b);
       this.f.push(v[3], v[1], L, top);
@@ -33,7 +34,7 @@ export class WallBuf {
     let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
     const l = Math.hypot(...n) || 1; n = n.map(v => v / l);
     [p0, p1, p2].forEach((p, i) => {
-      this.pos.push(p[0], p[1], p[2]); this.nor.push(n[0], n[1], n[2]); this.col.push(col.r, col.g, col.b);
+      this.pos.push(p[0], p[1] + this.yOff, p[2]); this.nor.push(n[0], n[1], n[2]); this.col.push(col.r, col.g, col.b);
       this.f.push(uvs[i], p[1], L, top); this.s.push(style, lh, seed, levels);
     });
   }
@@ -50,14 +51,14 @@ export class WallBuf {
 }
 
 class RoofBuf {
-  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; }
+  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.yOff = 0; }
   tri(p0, p1, p2, col, uvFn, down = false) {
     const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
     let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
     const l = Math.hypot(...n) || 1; n = n.map(v => v / l);
     if ((n[1] < 0) !== down) { [p1, p2] = [p2, p1]; n = n.map(v => -v); }
     for (const p of [p0, p1, p2]) {
-      this.pos.push(p[0], p[1], p[2]); this.nor.push(n[0], n[1], n[2]); this.col.push(col.r, col.g, col.b);
+      this.pos.push(p[0], p[1] + this.yOff, p[2]); this.nor.push(n[0], n[1], n[2]); this.col.push(col.r, col.g, col.b);
       const uv = uvFn(p); this.uv.push(uv[0], uv[1]);
     }
   }
@@ -202,10 +203,23 @@ export function buildBuildings(world, mats, opts = {}) {
   });
   const inside = (j, x, z) => { const bb = bbs[j]; return x >= bb[0] && x <= bb[2] && z >= bb[1] && z <= bb[3] && pointInPoly(x, z, B[j].p); };
   // visible bottom of wall of building i at point (x,z) with outward normal n
+  // parts whose bounding box touches building i (most buildings stand alone → no sampling needed)
+  const touching = i => {
+    const [x0, z0, x1, z1] = bbs[i], out = new Set();
+    for (let gx = Math.floor((x0 - 0.3) / G); gx <= Math.floor((x1 + 0.3) / G); gx++) for (let gz = Math.floor((z0 - 0.3) / G); gz <= Math.floor((z1 + 0.3) / G); gz++) {
+      for (const j of grid.get(gx * 100003 + gz) || []) {
+        if (j === i) continue;
+        const bb = bbs[j];
+        if (bb[0] > x1 + 0.3 || bb[2] < x0 - 0.3 || bb[1] > z1 + 0.3 || bb[3] < z0 - 0.3) continue;
+        out.add(j);
+      }
+    }
+    return [...out];
+  };
+  let cand = null;
   function visibleBottom(i, bottom, top, x, z, nx, nz) {
-    const cand = grid.get(Math.floor(x / G) * 100003 + Math.floor(z / G));
     let vb = bottom;
-    if (!cand) return vb;
+    if (!cand.length) return vb;
     const b = B[i];
     const ix = x - nx * 0.12, iz = z - nz * 0.12, ox = x + nx * 0.12, oz = z + nz * 0.12;
     for (const j of cand) {
@@ -221,8 +235,11 @@ export function buildBuildings(world, mats, opts = {}) {
   }
   world.buildings.forEach((b, idx) => {
     if (skip.has(idx)) return;
+    cand = b.k === 'roof' ? [] : touching(idx);
     const c = centroid(b.p);
     const ch = getChunk(c[0], c[1]);
+    const Y = b.y0 ?? 0;
+    ch.walls.yOff = ch.roofFlat.yOff = ch.roofTile.yOff = Y;
     const col = new THREE.Color(b.c);
     const style = STYLE_ID[b.st] ?? 5;
     let seed = (idx * 7.13) % 97;
@@ -230,6 +247,7 @@ export function buildBuildings(world, mats, opts = {}) {
     const rings = [b.p, ...(b.hl || [])];
     let bottom = b.mh;
     if (b.k === 'roof') bottom = Math.max(b.mh, b.wh - 0.35);
+    else if (b.mh < 0.05) bottom = Math.min(0, (b.yb ?? Y) - Y) - 0.4;   // down to the lowest ground around it
     else if (b.mh > 0.5) {
       const cand = grid.get(Math.floor(c[0] / G) * 100003 + Math.floor(c[1] / G)) || [];
       if (cand.some(j => j !== idx && Math.abs(B[j].wh - b.mh) < 0.3 && inside(j, c[0], c[1]))) bottom = b.mh - 0.9;
@@ -241,7 +259,7 @@ export function buildBuildings(world, mats, opts = {}) {
         const L = Math.hypot(d[0] - a[0], d[1] - a[1]);
         if (L < 0.01) continue;
         const ux = (d[0] - a[0]) / L, uz = (d[1] - a[1]) / L, nx = uz, nz = -ux;
-        const n = Math.max(1, Math.ceil(L / 1.0));
+        const n = cand.length ? Math.max(1, Math.ceil(L / 1.0)) : 1;
         // runs of equal visible bottom along the edge
         let runStart = 0, runVb = null;
         const flush = (k) => {

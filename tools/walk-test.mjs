@@ -6,6 +6,8 @@
 //  4. (interiors) every staircase is walked up and down
 // Usage: node tools/walk-test.mjs [--quick]
 import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
+import { Terrain, setTerrain, gradeSite, bridgeDecks } from '../src/world/terrain.js';
 import { CollisionWorld } from '../src/physics/collision.js';
 import { Controller, PLAYER } from '../src/physics/controller.js';
 import { computeLayout } from '../src/world/layout.js';
@@ -16,6 +18,7 @@ import { buildInteriorColliders, ENTERABLE, interiorTestRoutes } from '../src/wo
 
 const quick = process.argv.includes('--quick');
 const world = JSON.parse(readFileSync('data/world/suedgelaende.json', 'utf8'));
+{ const T = await Terrain.fromWorld(world.terrain, inflateSync); gradeSite(world, T); setTerrain(T); }
 const t0 = Date.now();
 const layout = computeLayout(world);
 const cw = new CollisionWorld(8);
@@ -37,7 +40,7 @@ function nearbyTags(x, z) {
 
 function checkState(c, label) {
   if (!Number.isFinite(c.x + c.y + c.z)) { fail('nan', 0, 0, label); return false; }
-  if (c.y < -0.05) { fail('below-ground', c.x, c.z, label + ` y=${c.y.toFixed(2)}`); return false; }
+  if (c.y < cw.terrainAt(c.x, c.z) - 0.05) { fail('below-ground', c.x, c.z, label + ` y=${c.y.toFixed(2)}`); return false; }
   if (cw.solidAt(c.x, c.z, c.y, c.y + PLAYER.height)) { fail('inside-solid', c.x, c.z, label); return false; }
   return true;
 }
@@ -89,6 +92,16 @@ function walkTo(c, tx, tz, maxT, label) {
 const N = world.nav.n, E = world.nav.e;
 let walked = 0, blocked = 0, metres = 0;
 const rnd = rng(7);
+// an edge that runs along a bridge starts on the deck (not on the ground underneath)
+const DECKS = bridgeDecks(world);
+function deckStart(x, z, dx, dz) {
+  for (const d of DECKS) {
+    const a = (x - d.cx) * d.ux + (z - d.cz) * d.uz, b = -(x - d.cx) * d.uz + (z - d.cz) * d.ux;
+    if (Math.abs(a) > d.hl + 0.5 || Math.abs(b) > d.hw || Math.abs(dx * d.ux + dz * d.uz) < 0.85) continue;
+    return d.y0 + (d.y1 - d.y0) * Math.min(1, Math.max(0, (a + d.hl) / (2 * d.hl))) + 0.05;
+  }
+  return null;
+}
 const edges = E.filter(e => (e[2] & 1) && !(e[2] & 16));
 const sample = quick ? edges.filter(() => rnd() < 0.15) : edges;
 for (const [a, b, f, w] of sample) {
@@ -97,7 +110,7 @@ for (const [a, b, f, w] of sample) {
   if (len < 0.5) continue;
   // start slightly into the segment so we don't begin inside junction furniture
   const c = new Controller(cw, A[0], A[1], 0);
-  c.teleport(A[0], A[1]);
+  c.teleport(A[0], A[1], deckStart(A[0], A[1], (B[0] - A[0]) / len, (B[1] - A[1]) / len));
   if (!cw.isFree(c.x, c.z, PLAYER.radius, c.y, c.y + PLAYER.height)) {
     // start blocked (e.g. node exactly at a lamp post): nudge
     let ok = false;

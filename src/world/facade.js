@@ -277,6 +277,8 @@ vec3 fTv;
       }
       float hsh = fHash(vec3(cellId, fl, seed + 11.0));
       float blind = blindOK < 0.5 ? 0.0 : hsh < 0.66 ? 0.0 : hsh < 0.9 ? (hsh - 0.66) * 3.0 : 1.0;
+      float farW = smoothstep(0.05, 0.22, aa);           // far away: window-to-window differences soften
+      blind *= 1.0 - 0.75 * farW;
       bool inBlind = g.y / oh > 1.0 - blind;
       float lit = step(fHash(vec3(cellId, fl, seed + 23.0)), litP) * uNight;
       vec3 warm = mix(vec3(1.0, 0.78, 0.5), vec3(0.85, 0.9, 1.0), step(0.7, fHash(vec3(cellId, fl, seed + 29.0))));
@@ -302,6 +304,7 @@ vec3 fTv;
         vec3 room = fRoom(p0, ray, roomW, Hc, roomD + 2.0 * fHash(vec3(rid, 1.0, 2.0)), rid, rlit, kind);
         float F = 0.04 + 0.96 * pow(1.0 - ray.z, 5.0);
         fEmis = room * (1.0 - F) * 0.72;
+        fEmis = mix(fEmis, vec3(0.03, 0.032, 0.035) * (1.0 - uNight) + fEmis * uNight, farW * 0.7);
         if (curtain) {
           // sheer net curtain (Gardine) behind the glass
           float fold = 0.85 + 0.15 * sin(g.x * 40.0) * fine2;

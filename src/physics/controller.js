@@ -1,4 +1,5 @@
 // First-person character controller on top of CollisionWorld. Pure JS.
+import { groundY } from '../world/terrain.js';
 export const PLAYER = {
   radius: 0.3,
   height: 1.78,
@@ -31,13 +32,19 @@ export class Controller {
 
   teleport(x, z, y = null, yaw = null) {
     const w = this.world;
-    if (y == null) y = w.groundHeight(x, z, 0.5); // default: ground level (never onto roofs)
+    if (y == null) {
+      // default: ground level (never onto roofs); inside buildings the ground floor
+      y = w.groundHeight(x, z, groundY(x, z) + 0.5);
+      if (!Number.isFinite(y)) y = w.groundHeight(x, z, groundY(x, z) + 4);
+      if (!Number.isFinite(y)) y = groundY(x, z);
+    }
     this.x = x; this.z = z; this.y = y;
     this.vx = this.vy = this.vz = 0;
     if (yaw != null) this.yaw = yaw;
     const r = w.resolve(this.x, this.z, PLAYER.radius, this.y, this.y + PLAYER.height, PLAYER.stepUp);
     this.x = r.x; this.z = r.z;
-    this.y = w.groundHeight(this.x, this.z, this.y + PLAYER.stepUp);
+    const gy = w.groundHeight(this.x, this.z, this.y + PLAYER.stepUp);
+    if (Number.isFinite(gy)) this.y = gy;
     this.onGround = true;
     this.safe = { x: this.x, y: this.y, z: this.z, t: 0 };
   }
@@ -71,6 +78,8 @@ export class Controller {
 
     // Step-up must also have head room at the new spot
     let ground = w.groundHeight(nx, nz, this.y + (this.onGround ? P.stepUp : 0.12));
+    // terrain rising faster than a step (embankment, wall of a cutting) blocks like a wall
+    if (ground === -Infinity) { nx = px; nz = pz; ground = w.groundHeight(px, pz, this.y + P.stepUp); }
     const ceil = w.ceilingHeight(nx, nz, ground + 0.5);
     if (ceil - ground < P.height * 0.95) { nx = px; nz = pz; ground = w.groundHeight(px, pz, this.y + P.stepUp); }
 
@@ -107,7 +116,7 @@ export class Controller {
     this.airTime = this.onGround ? 0 : this.airTime + dt;
 
     // --- safety net ---
-    if (this.y < -15 || !Number.isFinite(this.x + this.y + this.z)) {
+    if (this.y < groundY(this.x, this.z) - 15 || !Number.isFinite(this.x + this.y + this.z)) {
       this.x = this.safe.x; this.y = this.safe.y; this.z = this.safe.z;
       this.vx = this.vy = this.vz = 0; this.onGround = true;
       this.events.push('respawn');

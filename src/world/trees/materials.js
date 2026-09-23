@@ -62,7 +62,9 @@ export function barkMaterial(tex, fade) {
 // Leaf cards. sp: {pal:[5 hex], twig: hex}. ic: default (progress, brightness, loss) for
 // non-instanced meshes (hedges).
 export function leafMaterial(atlas, sp, fade, antialias, ic = [0.3, 1, 0]) {
-  const m = new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.5 });
+  // the atlas is also set as .map: the shadow pass copies .map onto the depth material (which
+  // needs it for the cut-out); the colour pass samples it itself, so the map chunk is skipped
+  const m = new THREE.MeshStandardMaterial({ map: atlas.texture, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.5 });
   m.alphaToCoverage = !!antialias;
   const u = {
     uLeafTex: { value: atlas.texture }, uTexSize: { value: atlas.size },
@@ -101,6 +103,7 @@ vec3 leafPal(float t) {
   else if (t > 1.0) { a = uPal[1]; b = uPal[2]; f = t - 1.0; }
   return mix(a, b, f);
 }`)
+      .replace('#include <map_fragment>', '')
       .replace('#include <color_fragment>', `
 vec4 lt = texture2D(uLeafTex, vLeafUv);
 #ifdef TREE_FADE
@@ -126,7 +129,7 @@ void RE_Direct_Leaf(const in IncidentLight directLight, const in vec3 geometryPo
 #undef RE_Direct
 #define RE_Direct RE_Direct_Leaf`);
   };
-  m.customProgramCacheKey = () => 'tree-leaf-v1' + (fade ? 'f' : '') + (antialias ? 'a' : '');
+  m.customProgramCacheKey = () => 'tree-leaf-v2' + (fade ? 'f' : '') + (antialias ? 'a' : '');
   return m;
 }
 

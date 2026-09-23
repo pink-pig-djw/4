@@ -142,7 +142,7 @@ export class Interiors {
         if (!o.inner) {
           // canopy over the entrance
           boxBetween(extra, [A[0] + e.nx * 0.9 - ux * 0.6, A[1] + e.nz * 0.9 - uz * 0.6], [B[0] + e.nx * 0.9 + ux * 0.6, B[1] + e.nz * 0.9 + uz * 0.6], 3.0, 3.18, 2.0, '#4f5358');
-          this.doors.push({ x: (A[0] + B[0]) / 2, z: (A[1] + B[1]) / 2, ux, uz, w: o.d1 - o.d0, nx: e.nx, nz: e.nz, h: o.y1, open: 0 });
+          this.doors.push({ x: (A[0] + B[0]) / 2, z: (A[1] + B[1]) / 2, ux, uz, w: o.d1 - o.d0, nx: e.nx, nz: e.nz, h: o.y1, open: 0, y0: P.base });
         }
       }
       if (!e.party) glassParts.push([[e.a[0] - e.nx * 0.14, e.a[1] - e.nz * 0.14], [e.b[0] - e.nx * 0.14, e.b[1] - e.nz * 0.14], e.openings]);
@@ -258,11 +258,12 @@ export class Interiors {
     const cx = P.F.cx, cz = P.F.cz, rad = Math.hypot(P.F.hw, P.F.hd);
     g.userData.cull = { x: cx, z: cz, r: rad, maxDist: 150, castDist: 120, cast: true, lod: () => this.planVisible(P) };
     P.group = g;
+    g.position.y = P.base;   // plans are built relative to their floor level
     this.group.add(g);
   }
 
   _buildFurniture() {
-    const items = this.plans.flatMap(P => P.furn);
+    const items = this.plans.flatMap(P => P.furn.map(it => ({ ...it, y: (it.y ?? 0) + P.base })));
     const byType = new Map();
     for (const it of items) { let a = byType.get(it.type); if (!a) byType.set(it.type, a = []); a.push(it); }
     for (const [type, list] of byType) {
@@ -279,7 +280,7 @@ export class Interiors {
       for (const m of meshes) m.userData.cull.lod = () => this.furnitureVisible(m.userData.cull);
     }
     // ceiling lights (emissive panels)
-    const lights = this.plans.flatMap(P => P.lights);
+    const lights = this.plans.flatMap(P => P.lights.map(l => ({ ...l, y: l.y + P.base })));
     const lm = chunkedInstances(this.group, FURNITURE.light(), this.propMat, lights, (l, p, s) => { p.set(l.x, l.y, l.z); s.set(l.w, 1, l.d); return { rot: -l.yaw }; }, { chunk: 64, maxDist: 110, cast: false });
     for (const m of lm) m.userData.cull.lod = () => this.furnitureVisible(m.userData.cull);
     // sliding entrance doors (animated)
@@ -306,7 +307,7 @@ export class Interiors {
     const half = d.w / 2;
     for (const { m, sd } of d.leaves) {
       const off = sd * (half / 2 + open * half * 0.95);
-      m.position.set(d.x + d.ux * off - d.nx * 0.15, (d.h - 0.05) / 2, d.z + d.uz * off - d.nz * 0.15);
+      m.position.set(d.x + d.ux * off - d.nx * 0.15, d.y0 + (d.h - 0.05) / 2, d.z + d.uz * off - d.nz * 0.15);
     }
   }
 
@@ -330,7 +331,7 @@ export class Interiors {
         cache.set(l.text, uv);
       }
       const big = !/^\d\d\./.test(l.text);
-      pushQuad(buf, l.x, l.y, l.z, l.yaw, big ? 1.2 : 0.5, big ? 0.36 : 0.15, uv, 0.012);
+      pushQuad(buf, l.x, l.y + P.base, l.z, l.yaw, big ? 1.2 : 0.5, big ? 0.36 : 0.15, uv, 0.012);
     }
     atlas.done();
     if (!buf.pos.length) return;
@@ -371,8 +372,8 @@ export class Interiors {
     const p = game.player;
     const people = game.crowd ? game.crowd.positions() : null;
     for (const d of this.doors) {
-      let near = Math.hypot(p.x - d.x, p.z - d.z) < 3.2 && p.y < 2;
-      if (!near && people) for (const q of people) { if (Math.abs(q.x - d.x) < 3 && Math.abs(q.z - d.z) < 3 && q.y < 2) { near = true; break; } }
+      let near = Math.hypot(p.x - d.x, p.z - d.z) < 3.2 && p.y - d.y0 < 2;
+      if (!near && people) for (const q of people) { if (Math.abs(q.x - d.x) < 3 && Math.abs(q.z - d.z) < 3 && q.y - d.y0 < 2) { near = true; break; } }
       const target = near ? 1 : 0;
       const o = d.open + Math.sign(target - d.open) * Math.min(Math.abs(target - d.open), dt * 2.2);
       if (o !== d.open) { d.open = o; this._placeDoor(d, o); }

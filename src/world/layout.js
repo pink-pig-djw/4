@@ -82,6 +82,45 @@ class AreaIndex {
   }
 }
 
+// x-intervals where the horizontal line z lies inside the polygon (+ holes, even-odd rule)
+function rowIntervals(rings, z) {
+  const xs = [];
+  for (const ring of rings) for (let i = 0, n = ring.length; i < n; i++) {
+    const a = ring[i], b = ring[(i + 1) % n];
+    if ((a[1] > z) !== (b[1] > z)) xs.push(a[0] + (z - a[1]) / (b[1] - a[1]) * (b[0] - a[0]));
+  }
+  xs.sort((p, q) => p - q);
+  const out = [];
+  for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+  return out;
+}
+
+// Trees scattered through mapped forest (9 m) and scrub (12 m), clear of roads and buildings.
+// Deterministic per area, so the renderer and the Node walk test agree. → [x, z, type, h]
+function scatterForest(world, ri, bi) {
+  const out = [];
+  world.areas.forEach((ar, ai) => {
+    if (ar.k !== 'forest' && ar.k !== 'scrub') return;
+    const R = rng(12345 + ai * 7919);
+    const sp = ar.k === 'forest' ? 9 : 12;
+    const rings = [ar.p, ...(ar.hl || [])];
+    let z0 = Infinity, z1 = -Infinity;
+    for (const p of ar.p) { z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+    for (let z = Math.ceil(z0 / sp) * sp; z < z1; z += sp) {
+      for (const [xa, xb] of rowIntervals(rings, z + sp * 0.5)) {
+        for (let x = Math.ceil(xa / sp) * sp; x < xb; x += sp) {
+          const px = x + (R() - 0.5) * sp * 0.9, pz = z + sp * 0.5 + (R() - 0.5) * sp * 0.9, t = R();
+          if (px < xa + 0.5 || px > xb - 0.5) continue;
+          if (ri.intrusion(px, pz, 1.5)) continue;
+          if (bi.clearance(px, pz, 2) < 0.8) continue;
+          out.push([px, pz, ar.k === 'forest' ? (t < 0.35 ? 1 : 0) : 3, 0, 1]);
+        }
+      }
+    }
+  });
+  return out;
+}
+
 // Move a point off road surfaces (so furniture never blocks a path). Returns [x,z] or null if impossible.
 function nudgeOffRoads(ri, bi, x, z, margin, minBuilding = 0.4) {
   for (let it = 0; it < 4; it++) {
@@ -106,9 +145,9 @@ export function computeLayout(world) {
 
   // ---- trees ----
   // k: 0 broadleaf, 1 conifer, 2 shrub (walk-through); sp: species (see trees/species.js)
-  for (const t of world.trees) {
-    let [x, z, type, h] = t;
-    const forest = ai.hasKind(x, z, 'forest');
+  for (const t of world.trees.concat(scatterForest(world, ri, bi))) {
+    let [x, z, type, h, scattered] = t;
+    const forest = scattered ? type !== 3 : ai.hasKind(x, z, 'forest');
     const sp = assignSpecies(x, z, type, forest, r());
     const S = SPECIES[sp];
     const k = sp === 'shrub' ? 2 : S.evergreen ? 1 : 0;
@@ -118,12 +157,42 @@ export function computeLayout(world) {
     else s = forest ? 0.8 + r() * 0.4 : 0.62 + r() * 0.5;
     s = Math.min(Math.max(s, 0.45), MAX_SCALE[sp]);
     const rot = r() * Math.PI * 2, sy = 0.92 + r() * 0.16, ci = r();
-    if (k !== 2) {
+    if (k !== 2 && !scattered) {
       const p = nudgeOffRoads(ri, bi, x, z, 0.45, 0.3);
       if (!p) continue;
       [x, z] = p;
     }
     L.trees.push({ x, z, k, sp, s, rot, sy, ci, v: r() < 0.5 ? 0 : 1 });
+  }
+
+  // ---- barriers (hedges, fences, walls) ----
+  // Pieces between gates and wherever a mapped path or road crosses (there is always an opening
+  // in reality). Shared by the renderer and the colliders.
+  L.barrierPieces = [];
+  for (const b of world.barriers) {
+    if (b.k === 'retaining_wall') continue;
+    const gates = new Set(b.g || []);
+    for (let i = 0; i < b.p.length - 1; i++) {
+      const [ax, az] = b.p[i], [bx, bz] = b.p[i + 1];
+      const Ls = Math.hypot(bx - ax, bz - az); if (Ls < 0.05) continue;
+      const ux = (bx - ax) / Ls, uz = (bz - az) / Ls;
+      let s0 = 0, s1 = Ls;
+      if (gates.has(i)) s0 = Math.min(Ls, 1.6);
+      if (gates.has(i + 1)) s1 = Math.max(s0, Ls - 1.6);
+      if (s1 - s0 < 0.05) continue;
+      const n = Math.max(1, Math.ceil((s1 - s0) / 0.4));
+      let start = null;
+      for (let k = 0; k <= n; k++) {
+        const s = s0 + (s1 - s0) * k / n;
+        const hit = ri.intrusion(ax + ux * s, az + uz * s, -0.2);
+        if (!hit && start == null) start = s;
+        if ((hit || k === n) && start != null) {
+          const end = hit ? Math.max(start, s - (s1 - s0) / n) : s;
+          if (end - start > 0.3) L.barrierPieces.push({ k: b.k, h: b.h, id: L.barrierPieces.length, a: [ax + ux * start, az + uz * start], b: [ax + ux * end, az + uz * end] });
+          start = null;
+        }
+      }
+    }
   }
 
   // ---- benches ----

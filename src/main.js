@@ -17,9 +17,16 @@ async function boot() {
   if (!(params && params.has('autostart'))) await ui.showStart();
   ui.showLoading(t('loading'));
   const frame = () => new Promise(r => setTimeout(r, 16));
+  // load timing: work per step, excluding the waits for the progress bar to paint
+  const t0 = performance.now(), marks = {};
+  let last = t0, work = 0;
+  const step = async (name, p) => {
+    const d = performance.now() - last; work += d; marks[name] = Math.round(d);
+    ui.setProgress(p); await frame(); last = performance.now();
+  };
   const game = new Game(app, world, ui);
-  await game.init(async (p) => { ui.setProgress(p); await frame(); });
-  await installSystems(game, async (p) => { ui.setProgress(0.55 + p * 0.45); await frame(); });
+  await game.init(p => step('init' + Math.round(p * 100), p));
+  await installSystems(game, p => step('sys' + Math.round(p * 100), 0.55 + p * 0.45));
   setupSpawn(game);
   const w = params && params.get('w');
   if (w && ['autumn', 'sunny', 'overcast', 'rain', 'night'].includes(w)) game.weather.set(w, true);
@@ -27,6 +34,9 @@ async function boot() {
   if (ui.startedByClick) game.audio?.start();
   ui.hideLoading();
   game.start();
+  work += performance.now() - last;
+  game.loadTimes = { work: Math.round(work), total: Math.round(performance.now() - t0), marks };
+  console.info('[FAU] ready: ' + JSON.stringify(game.loadTimes));
   if (typeof window !== 'undefined') window.__game = game;
 }
 

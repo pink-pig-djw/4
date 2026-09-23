@@ -4,6 +4,8 @@
 // Map data © OpenStreetMap contributors, ODbL 1.0.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { REGIONS } from './regions.mjs';
+import { buildHeightmap, encodeHeightmap } from './dem.mjs';
+import { Terrain } from '../src/world/terrain.js';
 import {
   signedArea, area, orient, centroid, pointInPoly, distSegSq, closestOnSeg, polyBounds, cleanRing,
   labelPoint, rng, obb,
@@ -689,24 +691,8 @@ for (const n of nodes.values()) {
   if (oi >= 0) outlines[oi].ents.push(entrances.length - 1);
 }
 
-// ---------- forest scatter trees ----------
-const R = rng(12345);
-let forestTrees = 0;
-for (const ar of areas) {
-  if (ar.k !== 'forest' && ar.k !== 'scrub') continue;
-  const [x0, z0, x1, z1] = polyBounds(ar.p);
-  const spacing = ar.k === 'forest' ? 9 : 12;
-  for (let x = x0; x < x1; x += spacing) for (let z = z0; z < z1; z += spacing) {
-    const px = x + (R() - 0.5) * spacing * 0.9, pz = z + (R() - 0.5) * spacing * 0.9;
-    if (!inBounds(px, pz) || !pointInPoly(px, pz, ar.p)) continue;
-    if (ar.hl && ar.hl.some(h => pointInPoly(px, pz, h))) continue;
-    if (buildingAt(px, pz) >= 0) continue;
-    const ns = nearestSeg(px, pz, 4);
-    if (ns && ns.d < ns.seg[4].w / 2 + 1.5) continue;
-    trees.push([r2(px), r2(pz), ar.k === 'forest' ? (R() < 0.35 ? 1 : 0) : 3, 0]);
-    forestTrees++;
-  }
-}
+// forest trees are scattered at load time from the forest areas (see src/world/layout.js)
+const forestTrees = 0;
 
 // ---------- extra lamps along lit roads where no lamp is mapped nearby ----------
 const lampGrid = new Map();
@@ -851,13 +837,59 @@ for (const [id, m] of nodeUse) {
   streetSigns.push({ x: r2(x), z: r2(z), n: names, d: dirs.map(r2) });
 }
 
+// ---------- terrain (DGM1) ----------
+let terrain = null;
+if (region.dem) {
+  const CELL = 3, Q = 0.05;
+  const unproj = (x, z) => [lat0 - z / M_LAT, lon0 + x / M_LON];
+  const pad = 150;
+  const H = await buildHeightmap('data/raw/dgm1', [BOUNDS[0] - pad, BOUNDS[1] - pad, BOUNDS[2] + pad, BOUNDS[3] + pad], unproj, CELL);
+  if (H) {
+    const rel = new Float32Array(H.hm.length);
+    const T0 = new Terrain({ x0: H.x0, z0: H.z0, cell: H.cell, nx: H.nx, nz: H.nz, ref: 0 }, H.hm);
+    const ref = T0.height(0, 0);
+    for (let k = 0; k < rel.length; k++) rel[k] = H.hm[k] - ref;
+    const T = new Terrain({ x0: H.x0, z0: H.z0, cell: H.cell, nx: H.nx, nz: H.nz, ref }, rel);
+    terrain = { x0: r2(H.x0), z0: r2(H.z0), cell: H.cell, nx: H.nx, nz: H.nz, ref: r2(ref), q: Q, data: encodeHeightmap(H, ref, Q) };
+    // make the stored origin exact (x0/z0 rounded above)
+    terrain.x0 = H.x0; terrain.z0 = H.z0;
+    // building bases: all parts of one building complex share a floor level (terrain at the
+    // complex's label point); walls reach down to the lowest ground under the part
+    // The floor level is set by the ground in front of the entrances (buildings are entered at
+    // grade); without mapped entrances the ground at the label point is used.
+    const entsOf = new Map();
+    entrances.forEach(e => { if (!entsOf.has(e.b)) entsOf.set(e.b, []); entsOf.get(e.b).push(e); });
+    const doorLevel = (ents, poly) => {
+      if (ents.length) return ents.reduce((s, e) => s + T.height(e.x + e.nx * 1.2, e.z + e.nz * 1.2), 0) / ents.length;
+      const lp = labelPoint(poly); return T.height(lp[0], lp[1]);
+    };
+    const baseOf = new Map();
+    for (const o of outlines) {
+      const ents = (o.parts || []).flatMap(i => entsOf.get(i) || []);
+      const y0 = doorLevel(ents, o.p);
+      for (const i of o.parts || []) baseOf.set(i, y0);
+    }
+    buildings.forEach((b, i) => {
+      const y0 = baseOf.has(i) ? baseOf.get(i) : doorLevel(entsOf.get(i) || [], b.p);
+      const [lo] = T.range(b.p);
+      b.y0 = r2(y0); b.yb = r2(Math.min(lo, y0));
+    });
+    // bridge decks run straight between the ground at their two ends
+    for (const r of roads) if (r.br) r.by = [r2(T.height(r.p[0][0], r.p[0][1])), r2(T.height(r.p[r.p.length - 1][0], r.p[r.p.length - 1][1]))];
+    const [lo, hi] = T.range([[BOUNDS[0], BOUNDS[1]], [BOUNDS[2], BOUNDS[3]], [BOUNDS[0], BOUNDS[3]], [BOUNDS[2], BOUNDS[1]]]);
+    let mn = Infinity, mx = -Infinity; for (const v of rel) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+    console.log(`terrain ${H.nx}×${H.nz} @ ${CELL} m from ${H.tiles} DGM1 tiles, origin ${ref.toFixed(1)} m a.s.l., range ${mn.toFixed(1)}..${mx.toFixed(1)} m, ${H.missing} samples filled, ${(terrain.data.length / 1024).toFixed(0)} KB`);
+  } else console.warn('no DGM tiles found – flat terrain');
+}
+
 // ---------- output ----------
 const world = {
   meta: {
     region: regionId, name: region.name, origin: region.origin, bounds: BOUNDS.map(r2),
     osmBase: raw.osm3s?.timestamp_osm_base || null,
-    attribution: '© OpenStreetMap contributors (ODbL)',
+    attribution: '© OpenStreetMap contributors (ODbL)' + (terrain ? ' · Gelände: Bayerische Vermessungsverwaltung, DGM1 (CC BY 4.0)' : ''),
   },
+  terrain,
   buildings, outlines, roads, areas, waterways, barriers,
   trees, benches, bikes, lamps, stops, bins, misc, entrances, crossings, bollards, signals,
   nav: { n: navNodes, e: navEdges },

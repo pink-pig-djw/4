@@ -2,6 +2,7 @@
 // meadows, scrub and forest, and in the strips a mower can't reach (tree bases, wall and hedge
 // feet). Generated per 8 m cell (deterministic, cached), instanced, shrinking out with distance.
 import * as THREE from 'three';
+import { groundY } from './terrain.js';
 import { globalUniforms } from './materials.js';
 import { rng } from '../shared/geom.js';
 
@@ -159,7 +160,7 @@ export class Grass {
           for (const [x, z, rot, sc, tint] of cell[k]) {
             if (counts[k] >= K.cap) break;
             q.setFromAxisAngle(up, rot);
-            m4.compose(v.set(x, 0, z), q, s.set(sc, sc, sc));
+            m4.compose(v.set(x, groundY(x, z), z), q, s.set(sc, sc, sc));
             K.mesh.setMatrixAt(counts[k], m4);
             K.mesh.setColorAt(counts[k], c.setRGB(tint, tint * (0.97 + (tint - 1) * 0.3), tint * 0.95));
             counts[k]++;

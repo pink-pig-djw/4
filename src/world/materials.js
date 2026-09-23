@@ -92,6 +92,7 @@ export function createMaterials(maxAniso = 8) {
     road: {},
     marking: lay(wetify(new THREE.MeshStandardMaterial({ color: 0xe8e8e2, roughness: 0.7 }), 0.6, 'mk'), 6),
     water: new THREE.MeshStandardMaterial({ color: 0x2c4a4c, roughness: 0.08, metalness: 0.6 }),
+    bridge: wetify(new THREE.MeshStandardMaterial({ color: 0xa3a19b, roughness: 0.85 }), 0.8, 'bridge'),
   };
   mats.roofTile.map.repeat.set(0.5, 0.5);
   const A = mats.area;

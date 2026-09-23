@@ -1,6 +1,7 @@
 // Installs the optional world systems (vegetation, props, interiors, people, sound …) after the core world exists.
 import { Vegetation } from './world/vegetation.js';
 import { Grass } from './world/grass.js';
+import { Barriers } from './world/barriers.js';
 import { Props } from './world/props.js';
 import { DistanceCuller } from './world/shapes.js';
 import { Interiors } from './world/interiors/render.js';
@@ -12,6 +13,7 @@ export async function installSystems(game, progress) {
   const veg = new Vegetation(game);
   game.updaters.push(veg);
   game.vegetation = veg;
+  game.barriers = new Barriers(game);
   const grass = new Grass(game);
   game.updaters.push(grass);
   game.grass = grass;

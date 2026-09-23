@@ -2,6 +2,7 @@
 import { labelPoint, pointInPoly, distToPolyEdge } from '../shared/geom.js';
 import { PLACE_ZH } from '../core/i18n.js';
 import { PLAYER } from '../physics/controller.js';
+import { groundY } from './terrain.js';
 
 // Buildings that are key for students get a higher rank in the list.
 const RANK = {
@@ -16,7 +17,8 @@ function findFreeNear(cw, x, z, nx, nz, dists = [3.5, 5, 7, 9, 12, 16]) {
       const c = Math.cos(rot), s = Math.sin(rot);
       const dx = nx * c - nz * s, dz = nx * s + nz * c;
       const px = x + dx * d, pz = z + dz * d;
-      if (cw.isFree(px, pz, PLAYER.radius + 0.25, 0, PLAYER.height)) return { x: px, z: pz, yaw: Math.atan2(dx, dz) };
+      const g = groundY(px, pz);
+      if (cw.isFree(px, pz, PLAYER.radius + 0.25, g, g + PLAYER.height) && !cw.solidAt(px, pz, g, g + PLAYER.height)) return { x: px, z: pz, yaw: Math.atan2(dx, dz) };
     }
   }
   return null;
@@ -68,11 +70,14 @@ export function computePlaces(game) {
   for (const P of game.plans || []) {
     const d = P.extDoors.find(x => x.main) || P.extDoors[0];
     if (!d) continue;
-    for (const dist of [3.5, 2.5, 4.5, 5.5]) {
-      const x = d.x - d.nx * dist, z = d.z - d.nz * dist;
-      if (!cw.isFree(x, z, PLAYER.radius + 0.15, 0, PLAYER.height)) continue;
-      places.push({ id: 'in' + P.key, cat: 'uni', name: P.title.de, zh: P.title.zh + '（室内）', x, z, spawn: { x, z, yaw: Math.atan2(d.nx, d.nz), y: 0 }, rank: 99, enterable: true, plan: P.key });
-      break;
+    let done = false;
+    for (const dist of [3.5, 2.5, 4.5, 5.5, 7]) for (const lat of [0, 1.2, -1.2, 2.4, -2.4]) {
+      if (done) break;
+      const x = d.x - d.nx * dist - d.nz * lat, z = d.z - d.nz * dist + d.nx * lat;
+      if (!cw.isFree(x, z, PLAYER.radius + 0.15, P.base, P.base + PLAYER.height)) continue;
+      if (Math.abs(cw.groundHeight(x, z, P.base + 0.3) - P.base) > 0.05) continue;
+      places.push({ id: 'in' + P.key, cat: 'uni', name: P.title.de, zh: P.title.zh + '（室内）', x, z, spawn: { x, z, yaw: Math.atan2(d.nx, d.nz), y: P.base }, rank: 99, enterable: true, plan: P.key });
+      done = true;
     }
   }
   places.sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name, 'de'));
