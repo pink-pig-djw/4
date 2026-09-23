@@ -1,0 +1,19 @@
+{
+  "name": "fau-campus-3d",
+  "version": "0.1.0",
+  "private": true,
+  "description": "First-person 3D walkthrough of FAU Erlangen-Nürnberg Südgelände, built from OpenStreetMap data",
+  "type": "module",
+  "scripts": {
+    "fetch": "node tools/fetch-osm.mjs",
+    "world": "node tools/build-world.mjs",
+    "build": "node build.mjs",
+    "dev": "node dev.mjs",
+    "test": "node tools/walk-test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "three": "^0.186.0"
+  }
+}
