@@ -2,8 +2,9 @@
 // metric coordinates, so buildings need no textures and stay crisp at any distance.
 import * as THREE from 'three';
 import * as T from './textures.js';
+import { FACADE_PARS, FACADE_MAIN, FACADE_NORMAL } from './facade.js';
 
-export const STYLE_ID = { ribbon: 0, lab: 1, panel: 2, glass: 3, brick: 4, plaster: 5, hall: 6, deck: 7, plain: 8, church: 9, gable: 10, interior: 11 };
+export const STYLE_ID = { ribbon: 0, lab: 1, panel: 2, glass: 3, brick: 4, plaster: 5, hall: 6, deck: 7, plain: 8, church: 9, gable: 10, interior: 11, deckmesh: 12, door: 13 };
 
 // Global uniforms shared by many materials (weather / time of day).
 export const globalUniforms = {
@@ -11,163 +12,9 @@ export const globalUniforms = {
   uWet: { value: 0 },     // 0 dry … 1 soaked (rain)
   uTime: { value: 0 },
   uWind: { value: 0.8 },  // tree sway strength
+  uSunVis: { value: 0.55 }, // how visible direct sun shadows are (weather)
   uLeafTint: { value: 1 },
 };
-
-const FACADE_PARS = /* glsl */`
-uniform float uNight;
-uniform float uWet;
-varying vec4 vF;   // u along edge (m), height (m), edge length (m), wall top (m)
-varying vec4 vS;   // style id, level height, seed, levels
-float fHash(vec3 p) { p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-float box1(float x, float a, float b) { return step(a, x) * step(x, b); }
-`;
-
-// Computes facade appearance. Writes: fCol (albedo), fGlass (0..1), fEmis (rgb), fRough, fMetal
-const FACADE_MAIN = /* glsl */`
-vec3 fCol = diffuseColor.rgb;
-float fGlass = 0.0; vec3 fEmis = vec3(0.0); float fRough = 0.88; float fMetal = 0.0;
-{
-  float u = vF.x, h = vF.y, L = vF.z, top = vF.w;
-  bool inner = vS.x > 19.5;            // interior face of an exterior wall
-  int st = int(vS.x - (inner ? 20.0 : 0.0) + 0.5);
-  // seed is interpolated per pixel; round it so the hash is identical across a whole wall
-  float lh = max(vS.y, 2.0), seed = floor(vS.z * 8.0 + 0.5), levels = floor(vS.w + 0.5);
-  float fl = floor(h / lh), fy = h - fl * lh;
-  float aa = max(fwidth(u), fwidth(h));               // metres per pixel → fade fine detail
-  float fine = 1.0 - smoothstep(0.012, 0.05, aa);
-  float fine2 = 1.0 - smoothstep(0.006, 0.02, aa);  // for very fine stripes (blind slats, bricks)
-  // surface grain / exposed aggregate
-  if (!inner && st != 11) {
-    float grain = fHash(vec3(floor(u * 18.0), floor(h * 18.0), seed)) - 0.5;
-    fCol *= 1.0 + grain * 0.10 * fine;
-    // weathering streaks below windows, darker near ground
-    fCol *= mix(0.86, 1.0, smoothstep(0.0, 0.6, h));
-    float streak = fHash(vec3(floor(u * 1.3), 7.0, seed));
-    fCol *= 1.0 - 0.05 * streak * smoothstep(top, top - 6.0, h);
-    // metal flashing at the roof edge
-    if (st != 10 && h > top - 0.14) { fCol = vec3(0.32, 0.33, 0.34); fMetal = 0.4; fRough = 0.5; }
-  } else if (inner && fy < 0.08) { fCol = vec3(0.36, 0.35, 0.34); }
-
-  bool upper = fl < levels && h < top - 0.3;
-  float win = 0.0, frame = 0.0, cellId = 0.0;
-  float wy0 = 0.0, wy1 = 0.0; // window vertical extent in floor-local metres
-  if (st == 0) { // ribbon windows
-    wy0 = 1.05; wy1 = lh - 0.5;
-    float m = 0.45;
-    if (upper && u > m && u < L - m && fy > wy0 && fy < wy1) {
-      win = 1.0;
-      float mod1 = mod(u - m, 1.25);
-      cellId = floor((u - m) / 1.25);
-      frame = max(step(mod1, 0.07), max(step(fy, wy0 + 0.06), step(wy1 - 0.06, fy)));
-      frame = max(frame, step(abs(fy - (wy0 + (wy1 - wy0) * 0.72)), 0.03));
-    }
-    // horizontal board-form lines on the concrete spandrel
-    fCol *= 1.0 - 0.05 * fine * step(0.9, fract(h * 4.0));
-  } else if (st == 1 || st == 4 || st == 5 || st == 9) {
-    float sp = st == 5 ? 2.9 : st == 9 ? 4.2 : 2.7;
-    float ww = st == 5 ? 1.25 : st == 9 ? 1.1 : 1.7;
-    wy0 = st == 5 ? 0.9 : 0.95; wy1 = st == 5 ? 2.25 : lh - 0.65;
-    if (st == 9) { wy0 = 2.0; wy1 = top - 1.6; upper = h < top - 1.0; fl = 0.0; fy = h; }
-    float n = floor((L - 0.8) / sp);
-    if (upper && n >= 1.0) {
-      float start = (L - n * sp) * 0.5;
-      float c = (u - start) / sp; float ci = floor(c);
-      float cx = (fract(c) - 0.5) * sp;
-      if (ci >= 0.0 && ci < n && abs(cx) < ww * 0.5 && fy > wy0 && fy < wy1) {
-        win = 1.0; cellId = ci;
-        float fx = ww * 0.5 - abs(cx);
-        frame = max(step(fx, 0.07), max(step(fy, wy0 + 0.07), step(wy1 - 0.07, fy)));
-        if (st != 9) frame = max(frame, step(abs(cx), 0.035));
-      }
-      // window reveal shadow / sill
-      if (ci >= 0.0 && ci < n && abs(cx) < ww * 0.5 + 0.08 && fy > wy0 - 0.08 && fy < wy1 + 0.05 && win < 0.5) fCol *= 0.72;
-      if (st == 5 && ci >= 0.0 && ci < n && abs(cx) < ww * 0.5 + 0.06 && fy > wy1 + 0.02 && fy < wy1 + 0.24) fCol = mix(fCol, vec3(0.78), 0.6); // roller shutter box
-    }
-    if (st == 4) { // brick bond
-      float row = floor(h / 0.0775);
-      float bu = u / 0.25 + mod(row, 2.0) * 0.5;
-      float mort = max(step(fract(h / 0.0775), 0.13), step(fract(bu), 0.05));
-      float bv = fHash(vec3(floor(bu), row, seed)) - 0.5;
-      vec3 brick = fCol * (1.0 + bv * 0.22);
-      fCol = mix(fCol * 0.93, mix(brick, vec3(0.62, 0.6, 0.56), mort), fine2);
-    }
-  } else if (st == 2) { // modern panels with irregular tall windows
-    float sp = 1.25;
-    float ci = floor(u / sp); float cx = fract(u / sp) * sp;
-    float joint = max(step(cx, 0.02), step(abs(fy - 0.02), 0.02));
-    fCol *= 1.0 - 0.25 * joint * fine;
-    fCol *= 0.92 + 0.16 * fHash(vec3(ci, fl, seed));
-    wy0 = 0.55; wy1 = lh - 0.35;
-    if (upper && u > 0.6 && u < L - 0.6 && fHash(vec3(ci, fl, seed + 3.0)) > 0.42 && cx > 0.12 && cx < sp - 0.12 && fy > wy0 && fy < wy1) {
-      win = 1.0; cellId = ci;
-      frame = max(step(cx, 0.17), max(step(sp - 0.17, cx), max(step(fy, wy0 + 0.05), step(wy1 - 0.05, fy))));
-    }
-  } else if (st == 3) { // curtain wall
-    float sp = 1.5;
-    float cx = fract(u / sp) * sp; cellId = floor(u / sp);
-    wy0 = 0.0; wy1 = lh;
-    if (h < top - 0.3) {
-      bool slab = fy > lh - 0.45;
-      win = slab ? 0.0 : 1.0;
-      frame = max(step(cx, 0.06), step(abs(fy - 1.1), 0.03));
-      if (slab) { fCol = vec3(0.2, 0.22, 0.24); fMetal = 0.5; fRough = 0.4; }
-    }
-  } else if (st == 6) { // hall: corrugated cladding + clerestory
-    float cor = sin(u * 31.4159);
-    fCol *= 1.0 + 0.06 * cor * fine;
-    fMetal = 0.15; fRough = 0.55;
-    wy0 = top - 2.2; wy1 = top - 0.9;
-    if (h > wy0 && h < wy1 && u > 1.0 && u < L - 1.0) {
-      win = 1.0; cellId = floor(u / 2.0);
-      frame = max(step(mod(u, 2.0), 0.08), max(step(h, wy0 + 0.07), step(wy1 - 0.07, h)));
-      fy = h - wy0 + 1.0; wy0 = 1.0; wy1 = 1.0 + 1.3;
-    }
-    if (h < 0.6) fCol = vec3(0.55, 0.54, 0.52);
-  } else if (st == 7) { // parking deck
-    wy0 = 1.05; wy1 = lh - 0.35;
-    float col = step(mod(u, 5.4), 0.4);
-    if (upper && fy > wy0 && fy < wy1 && col < 0.5 && u > 0.5 && u < L - 0.5) {
-      fCol = vec3(0.06, 0.06, 0.065); fRough = 1.0;
-      fEmis = vec3(1.0, 0.95, 0.85) * 0.12 * uNight * step(0.4, fHash(vec3(floor(u / 5.4), fl, seed)));
-    }
-  } else if (st == 10) { // gable end (plaster)
-    fCol *= 0.97;
-  } else if (st == 11) { // interior walls: plain paint with skirting
-    if (fy < 0.1) fCol = vec3(0.35, 0.34, 0.33);
-  }
-
-  if (win > 0.5) {
-    // thin frames/mullions alias at distance: fade them out when a pixel covers more than a few cm
-    frame *= 1.0 - smoothstep(0.025, 0.07, aa);
-    float hsh = fHash(vec3(cellId, fl, seed + 11.0));
-    vec3 frameCol = st == 5 ? vec3(0.92) : st == 2 ? vec3(0.16) : st == 9 ? vec3(0.3, 0.3, 0.32) : vec3(0.42, 0.43, 0.44);
-    // venetian blinds / roller shutters partly lowered
-    float blind = hsh < 0.52 ? 0.0 : hsh < 0.85 ? (hsh - 0.52) * 2.4 : 1.0;
-    if (st == 3 || st == 9) blind = 0.0;
-    float wfrac = (fy - wy0) / max(wy1 - wy0, 0.01);
-    bool inBlind = wfrac > 1.0 - blind;
-    vec3 glassCol = vec3(0.05, 0.07, 0.085) * (0.8 + 0.5 * fHash(vec3(cellId, fl, seed + 5.0)));
-    float lit = inner ? 0.0 : step(fHash(vec3(cellId, fl, seed + 23.0)), (st == 5 ? 0.45 : 0.3)) * uNight;
-    if (inner) frameCol = vec3(0.9, 0.9, 0.88);
-    vec3 warm = mix(vec3(1.0, 0.78, 0.5), vec3(0.85, 0.9, 1.0), step(0.7, fHash(vec3(cellId, fl, seed + 29.0))));
-    if (frame > 0.5) { fCol = frameCol; fRough = 0.5; fMetal = 0.2; }
-    else if (inBlind) {
-      float slat = 0.8 + 0.2 * smoothstep(0.35, 0.65, fract(fy * 12.5));
-      fCol = (st == 5 ? vec3(0.8, 0.79, 0.76) : vec3(0.62, 0.63, 0.64)) * mix(0.9, slat, fine2);
-      fRough = 0.55; fMetal = st == 5 ? 0.0 : 0.3;
-      fEmis = warm * lit * 0.35;
-    } else {
-      fCol = glassCol; fGlass = 1.0; fRough = 0.12; fMetal = 0.5;
-      fEmis = warm * lit * 1.1;
-    }
-  }
-}
-#ifdef CUTOUT
-if (fGlass > 0.5) discard;
-#endif
-diffuseColor.rgb = fCol;
-`;
 
 export function createFacadeMaterial(cutout = false) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0, side: cutout ? THREE.FrontSide : THREE.FrontSide });
@@ -175,17 +22,19 @@ export function createFacadeMaterial(cutout = false) {
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uNight = globalUniforms.uNight;
     sh.uniforms.uWet = globalUniforms.uWet;
+    sh.uniforms.uSunVis = globalUniforms.uSunVis;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 aF;\nattribute vec4 aS;\nvarying vec4 vF;\nvarying vec4 vS;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvF = aF; vS = aS;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + FACADE_PARS)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + FACADE_MAIN)
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + FACADE_NORMAL)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = fRough;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = fMetal;')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += fEmis;');
   };
-  m.customProgramCacheKey = () => 'facade-v1' + (cutout ? '-cut' : '');
+  m.customProgramCacheKey = () => 'facade-v2' + (cutout ? '-cut' : '');
   return m;
 }
 

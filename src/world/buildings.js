@@ -5,7 +5,7 @@ import { obb, area as polyArea, centroid, labelPoint, pointInPoly, polyBounds } 
 
 const CHUNK = 220;
 
-class WallBuf {
+export class WallBuf {
   constructor() { this.pos = []; this.nor = []; this.col = []; this.f = []; this.s = []; }
   // quad with per-corner heights; a/b = [x,z]; y0a,y0b bottoms; y1a,y1b tops
   quad(a, b, y0a, y0b, y1a, y1b, col, style, lh, seed, levels, uOff = 0, L = null, topRef = null) {
@@ -74,6 +74,17 @@ class RoofBuf {
 
 const worldUV = p => [p[0], p[2]];
 
+const SMALL_FLAT = new Set(['garage', 'garages', 'carport', 'shed', 'hut', 'service', 'static_caravan', 'transformer_tower', 'kiosk']);
+const HOUSE = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'bungalow']);
+// Flat roofs sit a little below the top of the walls (parapet / Attika); the wall height from OSM
+// already includes it, so the overall height stays as mapped.
+export function parapetHeight(b, seed) {
+  if (b.rs !== 'flat' || b.k === 'roof' || b.wh < 2.2) return 0;
+  if (SMALL_FLAT.has(b.k)) return 0.1;
+  if (HOUSE.has(b.k)) return 0.25;
+  return Math.min(0.45 + ((seed * 13.7) % 1) * 0.4, b.wh * 0.15);
+}
+
 function isRectLike(poly) {
   if (poly.length < 4 || poly.length > 6) return null;
   const b = obb(poly);
@@ -87,13 +98,14 @@ function emitRoof(b, roofFlat, roofTile, walls, wallCol, seed) {
   const wh = b.wh, rh = Math.max(0, b.h - b.wh);
   const p = b.p;
   const shape = b.rs;
+  const ry = wh - parapetHeight(b, seed);
   const flat = () => {
     const contour = p.map(q => new THREE.Vector2(q[0], q[1]));
     const holes = (b.hl || []).map(h => h.map(q => new THREE.Vector2(q[0], q[1])));
     const all = contour.concat(...holes);
     const tris = THREE.ShapeUtils.triangulateShape(contour, holes);
     for (const t of tris) {
-      const P = t.map(i => [all[i].x, wh, all[i].y]);
+      const P = t.map(i => [all[i].x, ry, all[i].y]);
       roofFlat.tri(P[0], P[1], P[2], rc, worldUV);
     }
     return null;
@@ -218,6 +230,10 @@ export function buildBuildings(world, mats, opts = {}) {
     const rings = [b.p, ...(b.hl || [])];
     let bottom = b.mh;
     if (b.k === 'roof') bottom = Math.max(b.mh, b.wh - 0.35);
+    else if (b.mh > 0.5) {
+      const cand = grid.get(Math.floor(c[0] / G) * 100003 + Math.floor(c[1] / G)) || [];
+      if (cand.some(j => j !== idx && Math.abs(B[j].wh - b.mh) < 0.3 && inside(j, c[0], c[1]))) bottom = b.mh - 0.9;
+    }
     for (const ring of rings) {
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], d = ring[(i + 1) % ring.length];
@@ -245,6 +261,23 @@ export function buildBuildings(world, mats, opts = {}) {
           else if (vq !== runVb) { flush(k); runVb = vq; runStart = k; }
         }
         flush(n);
+      }
+    }
+    // parapet: inner face down to the lowered roof, and the coping on top
+    const ph = parapetHeight(b, seed);
+    if (ph > 0.05) {
+      const tk = ph > 0.2 ? 0.25 : 0.12, dark = col.clone().multiplyScalar(0.85);
+      for (const ring of rings) {
+        for (let i = 0; i < ring.length; i++) {
+          const a = ring[i], d = ring[(i + 1) % ring.length];
+          const L = Math.hypot(d[0] - a[0], d[1] - a[1]);
+          if (L < 0.3) continue;
+          const nx = (d[1] - a[1]) / L, nz = -(d[0] - a[0]) / L;
+          const ai = [a[0] - nx * tk, a[1] - nz * tk], di = [d[0] - nx * tk, d[1] - nz * tk];
+          ch.walls.quad(di, ai, b.wh - ph, b.wh - ph, b.wh, b.wh, dark, STYLE_ID.plain, 3, seed, 0, 0, L, b.wh);
+          ch.walls.tri([a[0], b.wh, a[1]], [ai[0], b.wh, ai[1]], [d[0], b.wh, d[1]], col, STYLE_ID.plain, 3, seed, 0, [0, 0, L], L, b.wh);
+          ch.walls.tri([d[0], b.wh, d[1]], [ai[0], b.wh, ai[1]], [di[0], b.wh, di[1]], col, STYLE_ID.plain, 3, seed, 0, [L, 0, L], L, b.wh);
+        }
       }
     }
     // canopies need an underside

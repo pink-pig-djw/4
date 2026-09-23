@@ -5,6 +5,7 @@ import { Input } from './core/input.js';
 import { createMaterials, globalUniforms } from './world/materials.js';
 import { buildGround } from './world/ground.js';
 import { buildBuildings } from './world/buildings.js';
+import { buildDetails } from './world/buildingDetails.js';
 import { computeLayout } from './world/layout.js';
 import { addWorldColliders } from './physics/colliders.js';
 import { buildPlans, buildInteriorColliders, planAt } from './world/interiors/plan.js';
@@ -65,6 +66,7 @@ export class Game {
     const bld = buildBuildings(this.world, this.mats, { skip: this.skipBuildings });
     this.buildingsGroup = bld.group;
     scene.add(bld.group);
+    scene.add(buildDetails(this.world, this.mats, { skip: this.skipBuildings }));
     await progress(0.5);
     this.layout = computeLayout(this.world);
     buildInteriorColliders(this.world, this.cw, this.plans);

@@ -87,6 +87,7 @@ export class Weather {
     globalUniforms.uNight.value = p.night;
     globalUniforms.uWet.value = p.wet;
     globalUniforms.uWind.value = p.wind;
+    globalUniforms.uSunVis.value = p.shadow;
     if (final || this._envTimer === undefined || performance.now() - this._envTimer > 400) {
       this.sky.updateEnv();
       this._envTimer = performance.now();
